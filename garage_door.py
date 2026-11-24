@@ -120,6 +120,13 @@ def cmd_set_counter(args):
     print(f"Rolling code counter updated to: {args.counter}")
 
 
+def cmd_set_button(args):
+    """Change remote button (0 = Large Main Door, 1 = Left, 2 = Right)."""
+    manager = RemoteManager(args.config)
+    new_fixed = manager.set_button(args.button)
+    print(f"Switched to Button {args.button} (New Fixed ID: {new_fixed})")
+    print("Note: You must pair this button with your opener: python3 garage_door.py pair")
+
 def cmd_reset_remote(args):
     """Generate a new virtual remote ID."""
     manager = RemoteManager(args.config)
@@ -181,6 +188,10 @@ def main():
     subparsers.add_parser("open", help="Alias for toggle")
     subparsers.add_parser("close", help="Alias for toggle")
 
+    # Command: set-button
+    sub_btn = subparsers.add_parser("set-button", help="Switch remote button (0=Large Main Door, 1=Left, 2=Right)")
+    sub_btn.add_argument("button", type=int, choices=[0, 1, 2], help="Button number (0=Large Main Door)")
+
     # Command: set-counter
     sub_set = subparsers.add_parser("set-counter", help="Manually set rolling code counter")
     sub_set.add_argument("counter", type=int, help="New rolling code counter integer value")
@@ -210,6 +221,8 @@ def main():
         cmd_pair(args)
     elif args.command == "status":
         cmd_status(args)
+    elif args.command == "set-button":
+        cmd_set_button(args)
     elif args.command == "set-counter":
         cmd_set_counter(args)
     elif args.command == "reset-remote":

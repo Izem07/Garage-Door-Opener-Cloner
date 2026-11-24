@@ -13,26 +13,26 @@ MAX_FIXED_CODE = 3**20 - 1  # 3,486,784,400
 MAX_ROLLING_CODE = 2**32 - 1
 
 
-def generate_handheld_remote_id() -> int:
+def generate_handheld_remote_id(button: int = 0) -> int:
     """
     Generate a valid Security+ 1.0 Handheld Remote Fixed Code.
     
     Structure in Security+ 1.0:
-      button = fixed % 3          (1 = Primary / Left button)
+      button = fixed % 3          (0 = Large Main Door Button, 1 = Left, 2 = Right)
       id0    = (fixed // 3) % 3   (Sub-identifier)
       id1    = (fixed // 9) % 3   (Device Type: 0 = Keypad, 1 or 2 = Handheld Remote)
       remote = fixed // 27
     
-    CRITICAL: id1 MUST NOT be 0! If id1 == 0, Chamberlain openers classify the device
-    as a wireless keypad (requiring a 4-digit PIN), which causes the opener to reject
-    the command and flash 10 times! Setting id1 = 1 guarantees it is recognized as a
-    standard handheld remote.
+    CRITICAL:
+    1. button MUST be 0 (Large button). On models like 248739, button 1 is the
+       small accessory/light button, while button 0 is the primary door opener.
+    2. id1 MUST be 1 (Handheld remote, NOT a keypad).
     """
     remote_base = random.randint(10000, 100000000)
-    button = 1  # Standard primary remote button
+    btn = button % 3
     id0 = 0
     id1 = 1     # Handheld remote (NOT a keypad!)
-    return (remote_base * 27) + (id1 * 9) + (id0 * 3) + button
+    return (remote_base * 27) + (id1 * 9) + (id0 * 3) + btn
 
 
 class RemoteManager:
@@ -50,10 +50,11 @@ class RemoteManager:
                     cfg = json.load(f)
                     if "fixed_code" in cfg and "rolling_code" in cfg:
                         fixed = int(cfg["fixed_code"])
-                        # Validate that id1 != 0 so it's a remote and not a keypad
-                        if (fixed // 9) % 3 == 0:
-                            # Fix it by adding 9 so id1 becomes 1
-                            fixed += 9
+                        # Enforce id1 != 0 (remote not keypad) and button = 0 (large door button)
+                        remote_base = fixed // 27
+                        if (fixed // 9) % 3 == 0 or (fixed % 3) != 0:
+                            # Re-encode as large main button (button=0) and handheld remote (id1=1)
+                            fixed = (remote_base * 27) + (1 * 9) + (0 * 3) + 0
                             cfg["fixed_code"] = fixed
                         if cfg.get("step", 2) < 2:
                             cfg["step"] = 2
@@ -68,7 +69,7 @@ class RemoteManager:
         cfg = {
             "name": "Chamberlain Purple 315MHz Virtual Remote",
             "frequency_mhz": 315.00,
-            "fixed_code": generate_handheld_remote_id(),
+            "fixed_code": generate_handheld_remote_id(button=0),
             "rolling_code": 1000,
             "repeats_per_press": 8,
             "step": 2,
@@ -111,14 +112,24 @@ class RemoteManager:
 
         return rolling, fixed
 
-    def reset_remote(self, fixed_code: int = None, start_rolling: int = 1000):
+    def reset_remote(self, fixed_code: int = None, start_rolling: int = 1000, button: int = 0):
         """Reset the virtual remote with a new fixed ID and initial rolling counter."""
         if fixed_code is None:
-            fixed_code = generate_handheld_remote_id()
+            fixed_code = generate_handheld_remote_id(button=button)
         self.config["fixed_code"] = fixed_code % (MAX_FIXED_CODE + 1)
         self.config["rolling_code"] = start_rolling % (MAX_ROLLING_CODE + 1)
         self.save_config()
         return self.config["fixed_code"], self.config["rolling_code"]
+
+    def set_button(self, button_num: int):
+        """Switch active button (0 = Large Main Door, 1 = Left, 2 = Right)."""
+        self.reload()
+        fixed = int(self.config["fixed_code"])
+        remote_base = fixed // 27
+        new_fixed = (remote_base * 27) + (1 * 9) + (0 * 3) + (button_num % 3)
+        self.config["fixed_code"] = new_fixed
+        self.save_config()
+        return new_fixed
 
     def set_rolling_code(self, new_val: int):
         """Manually adjust rolling code."""
