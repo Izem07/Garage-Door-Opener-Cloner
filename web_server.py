@@ -167,7 +167,7 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
             "fixed_code_hex": f"0x{fixed:X}",
             "rolling_code": rolling,
             "rolling_code_hex": f"0x{rolling:X}",
-            "repeats": self.remote_mgr.config.get("repeats_per_press", 4),
+            "repeats": self.remote_mgr.config.get("repeats_per_press", 8),
             "hardware": {
                 "connected": not is_mock,
                 "is_simulation": is_mock,
@@ -180,7 +180,7 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
         self.send_json(payload)
 
     def handle_api_toggle(self, data: dict):
-        repeats = data.get("repeats") or self.remote_mgr.config.get("repeats_per_press", 4)
+        repeats = data.get("repeats") or self.remote_mgr.config.get("repeats_per_press", 8)
         rolling, fixed = self.remote_mgr.get_next_codes()
 
         try:

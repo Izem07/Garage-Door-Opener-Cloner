@@ -3,6 +3,6 @@
     "frequency_mhz": 315.0,
     "fixed_code": 632995987,
     "rolling_code": 1000,
-    "repeats_per_press": 4,
-    "step": 1
+    "repeats_per_press": 8,
+    "step": 2
 }

@@ -95,7 +95,7 @@ def cmd_pair(args):
 def cmd_toggle(args):
     """Transmit open / close command and increment rolling code counter."""
     manager = RemoteManager(args.config)
-    repeats = args.repeats or manager.config.get("repeats_per_press", 4)
+    repeats = args.repeats or manager.config.get("repeats_per_press", 8)
 
     rolling, fixed = manager.get_next_codes()
     print(f"Transmitting Open/Close command...")
@@ -176,7 +176,7 @@ def main():
 
     # Command: toggle / open / close
     sub_toggle = subparsers.add_parser("toggle", help="Send Open/Close command (increments rolling code)")
-    sub_toggle.add_argument("-r", "--repeats", type=int, default=None, help="Burst repeats (default: 4)")
+    sub_toggle.add_argument("-r", "--repeats", type=int, default=None, help="Burst repeats (default: 8)")
 
     subparsers.add_parser("open", help="Alias for toggle")
     subparsers.add_parser("close", help="Alias for toggle")

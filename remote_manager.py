@@ -27,6 +27,11 @@ class RemoteManager:
                 with open(self.config_path, "r", encoding="utf-8") as f:
                     cfg = json.load(f)
                     if "fixed_code" in cfg and "rolling_code" in cfg:
+                        # Security+ 1.0 masks LSB (bit 0), so step must be at least 2!
+                        if cfg.get("step", 1) < 2:
+                            cfg["step"] = 2
+                        if cfg.get("repeats_per_press", 4) < 8:
+                            cfg["repeats_per_press"] = 8
                         return cfg
             except Exception:
                 pass
@@ -37,8 +42,8 @@ class RemoteManager:
             "frequency_mhz": 315.00,
             "fixed_code": random.randint(100000, MAX_FIXED_CODE),
             "rolling_code": 1000,
-            "repeats_per_press": 4,
-            "step": 1,
+            "repeats_per_press": 8,
+            "step": 2,
         }
         self.save_config(cfg)
         return cfg
@@ -49,9 +54,16 @@ class RemoteManager:
             cfg = self.config
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=4)
+            f.flush()
+            os.fsync(f.fileno())
+
+    def reload(self):
+        """Reload configuration from disk to stay in sync with other processes."""
+        self.config = self.load_config()
 
     def peek_codes(self) -> Tuple[int, int]:
         """View the current (rolling_code, fixed_code) without incrementing."""
+        self.reload()
         return int(self.config["rolling_code"]), int(self.config["fixed_code"])
 
     def get_next_codes(self) -> Tuple[int, int]:
@@ -59,11 +71,12 @@ class RemoteManager:
         Get the current (rolling_code, fixed_code) and increment the rolling counter.
         The incremented counter is persisted to disk immediately.
         """
+        self.reload()
         rolling = int(self.config["rolling_code"])
         fixed = int(self.config["fixed_code"])
-        step = int(self.config.get("step", 1))
+        step = int(self.config.get("step", 2))
 
-        # Advance rolling code
+        # Advance rolling code (step >= 2 ensures bit 0 mask produces a strictly new code)
         next_rolling = (rolling + step) % (MAX_ROLLING_CODE + 1)
         self.config["rolling_code"] = next_rolling
         self.save_config()
@@ -81,10 +94,12 @@ class RemoteManager:
 
     def set_rolling_code(self, new_val: int):
         """Manually adjust rolling code (e.g. if desynchronized)."""
+        self.reload()
         self.config["rolling_code"] = int(new_val) % (MAX_ROLLING_CODE + 1)
         self.save_config()
 
     def set_fixed_code(self, fixed_val: int):
         """Manually set remote fixed ID."""
+        self.reload()
         self.config["fixed_code"] = int(fixed_val) % (MAX_FIXED_CODE + 1)
         self.save_config()
