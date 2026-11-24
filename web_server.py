@@ -14,7 +14,7 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlparse
 
 from cc1101 import CC1101
-from security_plus import generate_burst_bytes
+from security_plus import generate_burst_bytes, generate_burst_bits
 from remote_manager import RemoteManager
 
 logger = logging.getLogger("GarageWeb")
@@ -46,6 +46,8 @@ def add_log(action: str, details: str = "", success: bool = True):
 class GarageRequestHandler(BaseHTTPRequestHandler):
     remote_mgr: RemoteManager = None
     radio: CC1101 = None
+    tx_mode: str = "fifo"
+    gdo0_gpio: int = 24
 
     def log_message(self, format, *args):
         # Override to keep server output clean
@@ -184,9 +186,16 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
         rolling, fixed = self.remote_mgr.get_next_codes()
 
         try:
-            burst = generate_burst_bytes(rolling, fixed)
             with radio_lock:
-                self.radio.transmit_security_plus([burst] * repeats, inter_burst_delay=0.02)
+                if self.tx_mode == "async":
+                    bits = generate_burst_bits(rolling, fixed)
+                    self.radio.transmit_security_plus_async(
+                        [bits] * repeats, gdo0_gpio=self.gdo0_gpio,
+                        inter_burst_delay=0.025
+                    )
+                else:
+                    burst = generate_burst_bytes(rolling, fixed)
+                    self.radio.transmit_security_plus([burst] * repeats, inter_burst_delay=0.025)
             new_rolling, _ = self.remote_mgr.peek_codes()
             msg = f"Transmitted Open/Close (Rolling Code: {rolling} -> Next: {new_rolling})"
             add_log("Toggle Door", msg, success=True)
@@ -280,7 +289,9 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None, spi_bus: int = 0, spi_device: int = 0):
+def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
+               spi_bus: int = 0, spi_device: int = 0,
+               tx_mode: str = "fifo", gdo0_gpio: int = 24):
     if not os.path.exists(WEB_DIR):
         os.makedirs(WEB_DIR, exist_ok=True)
 
@@ -288,10 +299,15 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
 
     radio = CC1101(bus=spi_bus, device=spi_device)
     radio.init_spi()
-    radio.setup_security_plus_315mhz(packet_len=50)
+    if tx_mode == "async":
+        radio.setup_async_ook_315mhz()
+    else:
+        radio.setup_security_plus_315mhz(packet_len=50)
 
     GarageRequestHandler.remote_mgr = remote_mgr
     GarageRequestHandler.radio = radio
+    GarageRequestHandler.tx_mode = tx_mode
+    GarageRequestHandler.gdo0_gpio = gdo0_gpio
 
     server = ThreadingHTTPServer((host, port), GarageRequestHandler)
 

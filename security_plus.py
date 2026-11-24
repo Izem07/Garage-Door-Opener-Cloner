@@ -139,6 +139,33 @@ def bits_to_bytes(bits: List[int]) -> bytes:
     return bytes(out)
 
 
+def generate_burst_bits(rolling: int, fixed: int, pause_ms: float = 58.0) -> List[int]:
+    """
+    Generate one full Security+ 1.0 transmission burst as a flat list of OOK bits.
+
+    Returns the raw list of 0/1 bits (400 total = 50 bytes at 2000 baud).
+    Use this with CC1101 async/pigpio mode for microsecond-accurate transmission.
+
+    Packet 1: Sync 0 + symbols[0..19] (21 symbols = 84 bits)
+    Pause 1:  58 ms of LOW (116 bits at 2000 baud)
+    Packet 2: Sync 2 + symbols[20..39] (21 symbols = 84 bits)
+    Pause 2:  58 ms of LOW (116 bits at 2000 baud)
+    Total: 400 bits
+    """
+    code = encode(rolling, fixed)
+
+    p1_symbols = [0] + code[:20]
+    p2_symbols = [2] + code[20:]
+
+    p1_bits = symbols_to_bits(p1_symbols)
+    p2_bits = symbols_to_bits(p2_symbols)
+
+    pause_bits_count = int(round(pause_ms / 0.5))
+    pause_bits = [0] * pause_bits_count
+
+    return p1_bits + pause_bits + p2_bits + pause_bits
+
+
 def generate_burst_bytes(rolling: int, fixed: int, pause_ms: float = 58.0) -> bytes:
     """
     Generate one full Security+ transmission burst (Packet 1 + Pause + Packet 2 + Pause)
