@@ -546,6 +546,12 @@
           </svg>
           Sync Counter
         </button>
+        <button class="btn-secondary" onclick="resetRemoteId()">
+          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+          </svg>
+          New Remote ID
+        </button>
         <button class="btn-secondary" onclick="testRf()">
           <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
@@ -773,6 +779,29 @@
         }
       } catch (err) {
         alert('Error updating counter: ' + err.message);
+      }
+    }
+
+    async function resetRemoteId() {
+      if (!confirm('Generate a brand new Button 0 Virtual Remote? You will need to press the Purple Learn button to pair it afterwards.')) return;
+      try {
+        const res = await fetch('/api/reset-remote', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({})
+        });
+        const result = await res.json();
+        if (result.success) {
+          const toast = document.getElementById('toast');
+          toast.className = 'toast-msg success';
+          toast.textContent = 'New Button 0 Remote created! Now pair with Purple button.';
+          await fetchStatus();
+          openPairModal();
+        } else {
+          alert('Error: ' + result.error);
+        }
+      } catch (err) {
+        alert('Request failed: ' + err.message);
       }
     }
 
