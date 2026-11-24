@@ -88,7 +88,9 @@ ls /dev/spidev0.*
 ```bash
 sudo apt update
 sudo apt install -y python3-pip python3-spidev
-pip3 install -r requirements.txt
+# Note: On modern Raspberry Pi OS (Bookworm / Trixie), python3-spidev
+# is installed via apt above. If using pip, pass --break-system-packages:
+pip3 install -r requirements.txt --break-system-packages
 ```
 
 ### 3. Verify Hardware Connection
