@@ -7,9 +7,9 @@ Security+ 1.0 protocol characteristics:
 - Modulation: ASK / OOK (Amplitude Shift Keying / On-Off Keying)
 - Symbol Duration: 2.0 ms (2000 µs)
 - Ternary Alphabet:
-    Symbol 0: 500 µs HIGH, 1500 µs LOW  (Bit pattern at 2000 baud: 1 0 0 0)
-    Symbol 1: 1000 µs HIGH, 1000 µs LOW (Bit pattern at 2000 baud: 1 1 0 0)
-    Symbol 2: 1500 µs HIGH, 500 µs LOW  (Bit pattern at 2000 baud: 1 1 1 0)
+    Symbol 0: 1500 µs LOW, 500 µs HIGH  (Bit pattern at 2000 baud: 0 0 0 1)
+    Symbol 1: 1000 µs LOW, 1000 µs HIGH (Bit pattern at 2000 baud: 0 0 1 1)
+    Symbol 2: 500 µs LOW, 1500 µs HIGH  (Bit pattern at 2000 baud: 0 1 1 1)
 - Packet Structure:
     Each transmission consists of two packets separated by a ~58 ms blank pause:
     - Packet 1: Sync symbol 0 + 20 payload symbols (first half of 40-symbol code)
@@ -104,14 +104,15 @@ def decode(code: List[int]) -> Tuple[int, int]:
 def symbols_to_bits(symbols: List[int]) -> List[int]:
     """
     Convert ternary symbols to 2000 baud OOK bits (500 µs per bit).
-    Symbol 0: 500µs ON, 1500µs OFF -> [1, 0, 0, 0]
-    Symbol 1: 1000µs ON, 1000µs OFF -> [1, 1, 0, 0]
-    Symbol 2: 1500µs ON, 500µs OFF  -> [1, 1, 1, 0]
+    Security+ 1.0 official spec (argilo/secplus):
+      Symbol 0: 1500µs OFF, 500µs ON  -> [0, 0, 0, 1]
+      Symbol 1: 1000µs OFF, 1000µs ON -> [0, 0, 1, 1]
+      Symbol 2: 500µs OFF, 1500µs ON  -> [0, 1, 1, 1]
     """
     lut = {
-        0: [1, 0, 0, 0],
-        1: [1, 1, 0, 0],
-        2: [1, 1, 1, 0],
+        0: [0, 0, 0, 1],
+        1: [0, 0, 1, 1],
+        2: [0, 1, 1, 1],
     }
     bits = []
     for s in symbols:
