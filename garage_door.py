@@ -230,6 +230,68 @@ def cmd_toggle(args):
     print(f"Command transmitted! Next rolling counter: {new_rolling}")
 
 
+def cmd_light(args):
+    """Transmit light on/off command (Button 1) and advance rolling code counter."""
+    manager = RemoteManager(args.config)
+    repeats = args.repeats or manager.config.get("repeats_per_press", 8)
+    mode = getattr(args, 'mode', 'fifo')
+    gdo0 = getattr(args, 'gdo0', 24)
+
+    rolling, fixed = manager.get_button_codes(button=1)
+    print(f"Transmitting Opener Light command (Button 1, mode={mode})...")
+    print(f" -> Fixed ID: {fixed} | Rolling Code: {rolling} | Repeats: {repeats}")
+
+    if mode == "async":
+        radio = get_radio_async(args.spi_bus, args.spi_device)
+    else:
+        radio = get_radio_fifo(args.spi_bus, args.spi_device)
+
+    try:
+        _do_transmit(radio, rolling, fixed, repeats, mode, gdo0, inter_delay=0.025)
+    finally:
+        radio.close()
+
+    new_rolling, _ = manager.peek_codes()
+    print(f"Light command transmitted! Next rolling counter: {new_rolling}")
+
+
+def cmd_pair_light(args):
+    """Pair the light button (Button 1) using the Multi-Function Door Control."""
+    manager = RemoteManager(args.config)
+    repeats = args.repeats or 8
+    mode = getattr(args, 'mode', 'fifo')
+    gdo0 = getattr(args, 'gdo0', 24)
+
+    print("=" * 60)
+    print(" PAIR LIGHT BUTTON: Multi-Function Wall Door Control")
+    print("=" * 60)
+    print("Step 1: Go to the wall-mounted door control inside your garage.")
+    print("Step 2: Press and HOLD the LIGHT button on the wall control.")
+    print("Step 3: While holding LIGHT, press and HOLD the LOCK button.")
+    print("=" * 60)
+
+    if not args.yes:
+        input("Press [Enter] here while holding the wall control buttons...")
+
+    rolling, fixed = manager.get_button_codes(button=1)
+    print(f"Transmitting Light pairing signal (Button 1 Fixed ID {fixed}, Rolling {rolling})...")
+
+    if mode == "async":
+        radio = get_radio_async(args.spi_bus, args.spi_device)
+    else:
+        radio = get_radio_fifo(args.spi_bus, args.spi_device)
+
+    try:
+        _do_transmit(radio, rolling, fixed, repeats, mode, gdo0, inter_delay=0.030)
+    finally:
+        radio.close()
+
+    print("\nTransmission complete!")
+    print(" -> When the opener lights flash, release all buttons.")
+    print(" -> Now test the light with: python3 garage_door.py light")
+    print("=" * 60)
+
+
 def cmd_set_counter(args):
     manager = RemoteManager(args.config)
     manager.set_rolling_code(args.counter)
@@ -317,6 +379,13 @@ def main():
     subparsers.add_parser("open",  help="Alias for toggle")
     subparsers.add_parser("close", help="Alias for toggle")
 
+    sub_light = subparsers.add_parser("light", help="Toggle opener lights (Button 1)")
+    sub_light.add_argument("-r", "--repeats", type=int, default=None)
+
+    sub_pair_light = subparsers.add_parser("pair-light", help="Pair light button with wall control")
+    sub_pair_light.add_argument("-r", "--repeats", type=int, default=8)
+    sub_pair_light.add_argument("-y", "--yes", action="store_true")
+
     sub_btn = subparsers.add_parser("set-button", help="Switch button (0=large door, 1=light, 2=other)")
     sub_btn.add_argument("button", type=int, choices=[0, 1, 2])
 
@@ -346,6 +415,8 @@ def main():
         "toggle":       cmd_toggle,
         "open":         cmd_toggle,
         "close":        cmd_toggle,
+        "light":        cmd_light,
+        "pair-light":   cmd_pair_light,
         "set-button":   cmd_set_button,
         "set-counter":  cmd_set_counter,
         "reset-remote": cmd_reset_remote,

@@ -57,6 +57,14 @@ class ChamberlainCC1101Accessory {
       .getCharacteristic(Characteristic.ObstructionDetected)
       .onGet(this.getObstructionDetected.bind(this));
 
+    // Create HomeKit Light Service (controls opener courtesy light)
+    this.lightOn = false;
+    this.lightService = new Service.Lightbulb(`${this.name} Light`);
+    this.lightService
+      .getCharacteristic(Characteristic.On)
+      .onGet(() => this.lightOn)
+      .onSet(this.setLightState.bind(this));
+
     // Information service
     this.infoService = new Service.AccessoryInformation()
       .setCharacteristic(Characteristic.Manufacturer, "Chamberlain / TI CC1101")
@@ -65,7 +73,22 @@ class ChamberlainCC1101Accessory {
   }
 
   getServices() {
-    return [this.infoService, this.service];
+    return [this.infoService, this.service, this.lightService];
+  }
+
+  setLightState(value) {
+    this.lightOn = value;
+    this.log.info(`[${this.name}] Requested Light state: ${value ? "ON" : "OFF"}`);
+    const cmd = `python3 "${this.scriptPath}" light`;
+    this.log.info(`[${this.name}] Executing Light RF command: ${cmd}`);
+
+    exec(cmd, (error, stdout) => {
+      if (error) {
+        this.log.error(`[${this.name}] Failed to toggle light: ${error.message}`);
+        return;
+      }
+      this.log.info(`[${this.name}] Opener light toggled: ${stdout.trim()}`);
+    });
   }
 
   loadState() {

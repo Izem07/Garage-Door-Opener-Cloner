@@ -135,6 +135,10 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
 
         if path in ("/api/toggle", "/api/open", "/api/close"):
             self.handle_api_toggle(data)
+        elif path == "/api/light":
+            self.handle_api_light(data)
+        elif path == "/api/pair-light":
+            self.handle_api_pair_light(data)
         elif path == "/api/pair":
             self.handle_api_pair(data)
         elif path == "/api/set-counter":
@@ -210,6 +214,67 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
             err_msg = f"Failed to transmit: {e}"
             logger.error(err_msg)
             add_log("Toggle Door", err_msg, success=False)
+            self.send_json({"success": False, "error": err_msg}, status_code=500)
+
+    def handle_api_light(self, data: dict):
+        repeats = data.get("repeats") or self.remote_mgr.config.get("repeats_per_press", 8)
+        rolling, fixed = self.remote_mgr.get_button_codes(button=1)
+
+        try:
+            with radio_lock:
+                if self.tx_mode == "async":
+                    bits = generate_burst_bits(rolling, fixed)
+                    self.radio.transmit_security_plus_async(
+                        [bits] * repeats, gdo0_gpio=self.gdo0_gpio,
+                        inter_burst_delay=0.025
+                    )
+                else:
+                    burst = generate_burst_bytes(rolling, fixed)
+                    self.radio.transmit_security_plus([burst] * repeats, inter_burst_delay=0.025)
+            new_rolling, _ = self.remote_mgr.peek_codes()
+            msg = f"Transmitted Opener Light (Button 1: Fixed {fixed}, Rolling {rolling})"
+            add_log("Toggle Light", msg, success=True)
+            self.send_json({
+                "success": True,
+                "message": msg,
+                "sent_rolling_code": rolling,
+                "next_rolling_code": new_rolling,
+                "fixed_code": fixed,
+            })
+        except Exception as e:
+            err_msg = f"Failed to toggle light: {e}"
+            logger.error(err_msg)
+            add_log("Toggle Light", err_msg, success=False)
+            self.send_json({"success": False, "error": err_msg}, status_code=500)
+
+    def handle_api_pair_light(self, data: dict):
+        repeats = data.get("repeats") or 8
+        rolling, fixed = self.remote_mgr.get_button_codes(button=1)
+
+        try:
+            with radio_lock:
+                if self.tx_mode == "async":
+                    bits = generate_burst_bits(rolling, fixed)
+                    self.radio.transmit_security_plus_async(
+                        [bits] * repeats, gdo0_gpio=self.gdo0_gpio,
+                        inter_burst_delay=0.03
+                    )
+                else:
+                    burst = generate_burst_bytes(rolling, fixed)
+                    self.radio.transmit_security_plus([burst] * repeats, inter_burst_delay=0.03)
+            new_rolling, _ = self.remote_mgr.peek_codes()
+            msg = f"Sent Light Pairing (Button 1 Fixed ID: {fixed}, Rolling Counter: {rolling})"
+            add_log("Pair Light", msg, success=True)
+            self.send_json({
+                "success": True,
+                "message": msg,
+                "fixed_code": fixed,
+                "next_rolling_code": new_rolling,
+            })
+        except Exception as e:
+            err_msg = f"Light pairing failed: {e}"
+            logger.error(err_msg)
+            add_log("Pair Light", err_msg, success=False)
             self.send_json({"success": False, "error": err_msg}, status_code=500)
 
     def handle_api_pair(self, data: dict):

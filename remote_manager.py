@@ -100,17 +100,28 @@ class RemoteManager:
         Get the current (rolling_code, fixed_code) and increment the rolling counter.
         The incremented counter is persisted to disk immediately.
         """
+        return self.get_button_codes(button=0)
+
+    def get_button_codes(self, button: int = 0) -> Tuple[int, int]:
+        """
+        Get the current (rolling_code, fixed_code) for a specific button
+        (0 = Door, 1 = Light / Accessory, 2 = Right), and advance the shared rolling counter.
+        """
         self.reload()
         rolling = int(self.config["rolling_code"])
         fixed = int(self.config["fixed_code"])
         step = int(self.config.get("step", 2))
+
+        # Derive button-specific fixed ID using the same remote serial base
+        remote_base = fixed // 27
+        btn_fixed = (remote_base * 27) + (1 * 9) + (0 * 3) + (button % 3)
 
         # Advance rolling code
         next_rolling = (rolling + step) % (MAX_ROLLING_CODE + 1)
         self.config["rolling_code"] = next_rolling
         self.save_config()
 
-        return rolling, fixed
+        return rolling, btn_fixed
 
     def reset_remote(self, fixed_code: int = None, start_rolling: int = 1000, button: int = 0):
         """Reset the virtual remote with a new fixed ID and initial rolling counter."""
