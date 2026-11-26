@@ -1,6 +1,7 @@
 "use strict";
 
 const { exec } = require("child_process");
+const http = require("http");
 const fs = require("fs");
 const path = require("path");
 
@@ -23,12 +24,13 @@ class ChamberlainCC1101Accessory {
     this.config = config || {};
 
     this.name = this.config.name || "Garage Door";
+    this.apiUrl = this.config.apiUrl || null;
     this.scriptPath =
       this.config.scriptPath ||
       "/home/izem07/Garage-Door-Opener-Cloner/garage_door.py";
     this.doorTravelTime = parseInt(this.config.doorTravelTime || 12, 10); // in seconds
     this.stateFilePath = path.join(
-      this.config.stateDir || path.dirname(this.scriptPath),
+      this.config.stateDir || "/homebridge",
       "garage_state.json"
     );
 
@@ -76,18 +78,68 @@ class ChamberlainCC1101Accessory {
     return [this.infoService, this.service, this.lightService];
   }
 
+  _sendHttpRequest(endpoint, callback) {
+    const url = new URL(endpoint, this.apiUrl);
+    const options = {
+      hostname: url.hostname,
+      port: url.port || 80,
+      path: url.pathname,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      timeout: 5000,
+    };
+
+    const req = http.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => (data += chunk));
+      res.on("end", () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          callback(null, data);
+        } else {
+          callback(new Error(`HTTP status ${res.statusCode}: ${data}`));
+        }
+      });
+    });
+
+    req.on("error", (err) => callback(err));
+    req.on("timeout", () => {
+      req.destroy();
+      callback(new Error("HTTP request timed out"));
+    });
+
+    req.write(JSON.stringify({}));
+    req.end();
+  }
+
+  triggerAction(action, callback) {
+    if (this.apiUrl) {
+      const endpoint = action === "light" ? "/api/light" : "/api/toggle";
+      this.log.info(`[${this.name}] Sending HTTP POST to ${this.apiUrl}${endpoint}`);
+      this._sendHttpRequest(endpoint, callback);
+    } else {
+      const cmd = `python3 "${this.scriptPath}" ${action}`;
+      this.log.info(`[${this.name}] Executing command: ${cmd}`);
+      exec(cmd, (error, stdout) => {
+        if (error) {
+          callback(error);
+        } else {
+          callback(null, stdout);
+        }
+      });
+    }
+  }
+
   setLightState(value) {
     this.lightOn = value;
     this.log.info(`[${this.name}] Requested Light state: ${value ? "ON" : "OFF"}`);
-    const cmd = `python3 "${this.scriptPath}" light`;
-    this.log.info(`[${this.name}] Executing Light RF command: ${cmd}`);
-
-    exec(cmd, (error, stdout) => {
+    this.triggerAction("light", (error, result) => {
       if (error) {
         this.log.error(`[${this.name}] Failed to toggle light: ${error.message}`);
         return;
       }
-      this.log.info(`[${this.name}] Opener light toggled: ${stdout.trim()}`);
+      this.log.info(`[${this.name}] Opener light toggled: ${result}`);
     });
   }
 
@@ -167,13 +219,10 @@ class ChamberlainCC1101Accessory {
       .getCharacteristic(Characteristic.CurrentDoorState)
       .updateValue(this.currentDoorState);
 
-    // Execute the Python command to transmit the RF toggle signal
-    const cmd = `python3 "${this.scriptPath}" toggle`;
-    this.log.info(`[${this.name}] Executing RF command: ${cmd}`);
-
-    exec(cmd, (error, stdout, stderr) => {
+    // Execute toggle
+    this.triggerAction("toggle", (error, result) => {
       if (error) {
-        this.log.error(`[${this.name}] Failed to execute Python toggle: ${error.message}`);
+        this.log.error(`[${this.name}] Failed to toggle door: ${error.message}`);
         this.currentDoorState = Characteristic.CurrentDoorState.STOPPED;
         this.service
           .getCharacteristic(Characteristic.CurrentDoorState)
@@ -181,7 +230,7 @@ class ChamberlainCC1101Accessory {
         return;
       }
 
-      this.log.info(`[${this.name}] RF transmission complete: ${stdout.trim()}`);
+      this.log.info(`[${this.name}] Toggle action triggered: ${result}`);
 
       // Wait for door travel time to complete, then update to final state
       this.operatingTimer = setTimeout(() => {
@@ -204,3 +253,4 @@ class ChamberlainCC1101Accessory {
     });
   }
 }
+
