@@ -1,0 +1,29 @@
+{
+  "pluginAlias": "ChamberlainCC1101",
+  "pluginType": "accessory",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Accessory Name",
+        "type": "string",
+        "default": "Garage Door",
+        "required": true
+      },
+      "scriptPath": {
+        "title": "Path to garage_door.py",
+        "type": "string",
+        "default": "/home/izem07/Garage-Door-Opener-Cloner/garage_door.py",
+        "required": true
+      },
+      "doorTravelTime": {
+        "title": "Door Travel Time (seconds)",
+        "type": "integer",
+        "default": 12,
+        "minimum": 3,
+        "maximum": 60,
+        "description": "How long it takes for the garage door to fully open or close."
+      }
+    }
+  }
+}

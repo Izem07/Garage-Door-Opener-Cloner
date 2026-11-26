@@ -1,0 +1,24 @@
+{
+  "name": "homebridge-chamberlain-cc1101",
+  "version": "1.0.0",
+  "description": "Homebridge plugin for Chamberlain Security+ 1.0 Garage Door Opener using Raspberry Pi & CC1101 transceiver",
+  "license": "MIT",
+  "keywords": [
+    "homebridge-plugin",
+    "chamberlain",
+    "liftmaster",
+    "security-plus",
+    "cc1101",
+    "garage-door"
+  ],
+  "engines": {
+    "node": ">=14.0.0",
+    "homebridge": ">=1.3.0"
+  },
+  "main": "index.js",
+  "author": "Izem07",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Izem07/Garage-Door-Opener-Cloner"
+  }
+}
