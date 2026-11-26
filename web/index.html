@@ -1,379 +1,724 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>Garage Door Opener (315 MHz)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>GDO • Chamberlain 315MHz</title>
+  
+  <!-- Apple Touch & PWA icons -->
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
   <link rel="shortcut icon" href="/favicon.ico">
   <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
   <link rel="manifest" href="/manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Garage">
-  <meta name="theme-color" content="#9333ea">
+  <meta name="apple-mobile-web-app-title" content="GDO">
+  <meta name="theme-color" content="#09101d">
+
   <style>
     :root {
-      --bg: #0b0f19;
-      --card-bg: rgba(23, 31, 50, 0.7);
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --transition-speed: 0.25s;
+    }
+
+    /* Dark Mode (Default - inspired by Konnected GDO blaQ) */
+    html[data-theme="dark"] {
+      --bg: #09101d;
+      --card-bg: #101c33;
+      --card-inner: #15223c;
       --card-border: rgba(255, 255, 255, 0.08);
-      --accent-purple: #9333ea;
-      --accent-purple-glow: rgba(147, 51, 234, 0.4);
-      --accent-cyan: #06b6d4;
+      --card-hover: #162645;
       --text-main: #f8fafc;
-      --text-muted: #94a3b8;
+      --text-muted: #8e9bb0;
+      --accent-blue: #3b82f6;
+      --accent-blue-hover: #2563eb;
+      --accent-cyan: #38bdf8;
+      --accent-glow: rgba(59, 130, 246, 0.35);
       --success: #10b981;
       --warning: #f59e0b;
       --danger: #ef4444;
+      --toggle-off: #334155;
+      --toggle-thumb: #ffffff;
+      --slat-bg: #223250;
+      --slat-highlight: #e0f2fe;
+      --slat-glow: rgba(224, 242, 254, 0.6);
+      --track-bg: #1e293b;
+    }
+
+    /* Light Mode */
+    html[data-theme="light"] {
+      --bg: #f1f5f9;
+      --card-bg: #ffffff;
+      --card-inner: #f8fafc;
+      --card-border: #e2e8f0;
+      --card-hover: #f1f5f9;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --accent-blue: #2563eb;
+      --accent-blue-hover: #1d4ed8;
+      --accent-cyan: #0284c7;
+      --accent-glow: rgba(37, 99, 235, 0.25);
+      --success: #059669;
+      --warning: #d97706;
+      --danger: #dc2626;
+      --toggle-off: #cbd5e1;
+      --toggle-thumb: #ffffff;
+      --slat-bg: #cbd5e1;
+      --slat-highlight: #38bdf8;
+      --slat-glow: rgba(56, 189, 248, 0.4);
+      --track-bg: #e2e8f0;
     }
 
     * {
       box-sizing: border-box;
       margin: 0;
       padding: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-family: var(--font-family);
       -webkit-tap-highlight-color: transparent;
     }
 
     body {
-      background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, #0b0f19 75%);
+      background-color: var(--bg);
       color: var(--text-main);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 16px;
+      padding: 20px 16px 80px 16px;
+      padding-top: max(20px, env(safe-area-inset-top));
+      padding-bottom: max(80px, env(safe-area-inset-bottom));
+      transition: background-color var(--transition-speed) ease, color var(--transition-speed) ease;
     }
 
     .container {
       width: 100%;
-      max-width: 520px;
+      max-width: 980px;
       display: flex;
       flex-direction: column;
       gap: 16px;
     }
 
-    /* Header */
+    /* TOP HEADER */
     header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 12px 18px;
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 16px;
-      backdrop-filter: blur(12px);
+      padding: 8px 4px;
     }
 
-    .brand {
+    .brand-left {
       display: flex;
       align-items: center;
-      gap: 12px;
-    }
-
-    .logo-icon {
-      width: 36px;
-      height: 36px;
-      background: linear-gradient(135deg, #a855f7, #6366f1);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      box-shadow: 0 4px 12px var(--accent-purple-glow);
-    }
-
-    .brand-title {
-      font-size: 1.05rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-    }
-
-    .brand-subtitle {
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .purple-tag {
-      background: rgba(168, 85, 247, 0.2);
-      color: #c084fc;
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-weight: 600;
-    }
-
-    .status-badge {
-      font-size: 0.75rem;
-      font-weight: 600;
-      padding: 4px 10px;
-      border-radius: 20px;
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      background: rgba(16, 185, 129, 0.15);
-      color: var(--success);
-      border: 1px solid rgba(16, 185, 129, 0.3);
-    }
-
-    .status-badge.simulation {
-      background: rgba(245, 158, 11, 0.15);
-      color: var(--warning);
-      border-color: rgba(245, 158, 11, 0.3);
-    }
-
-    .pulse-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: currentColor;
-      box-shadow: 0 0 8px currentColor;
-    }
-
-    /* Hero Door Card */
-    .door-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 24px;
-      padding: 28px 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      text-align: center;
-      position: relative;
-      overflow: hidden;
-      backdrop-filter: blur(12px);
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
-    }
-
-    .door-graphic {
-      width: 90px;
-      height: 90px;
-      margin-bottom: 20px;
-      position: relative;
-    }
-
-    .door-svg {
-      width: 100%;
-      height: 100%;
-      filter: drop-shadow(0 0 14px var(--accent-purple-glow));
-      transition: transform 0.3s ease;
-    }
-
-    /* Main Toggle Button */
-    .btn-toggle {
-      width: 100%;
-      max-width: 320px;
-      height: 72px;
-      border-radius: 20px;
-      border: none;
-      background: linear-gradient(135deg, #9333ea 0%, #7e22ce 100%);
-      color: white;
-      font-size: 1.25rem;
-      font-weight: 700;
-      letter-spacing: 0.02em;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 12px;
-      box-shadow: 0 10px 25px -4px rgba(147, 51, 234, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
-      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
-      user-select: none;
-    }
-
-    .btn-toggle:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 14px 30px -4px rgba(147, 51, 234, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.3) inset;
-    }
-
-    .btn-toggle:active {
-      transform: translateY(1px) scale(0.98);
-      box-shadow: 0 4px 15px -4px rgba(147, 51, 234, 0.6);
-    }
-
-    .btn-toggle.transmitting {
-      background: linear-gradient(135deg, #4f46e5 0%, #3730a3 100%);
-      pointer-events: none;
-      animation: transmitPulse 1s infinite alternate;
-    }
-
-    @keyframes transmitPulse {
-      0% { box-shadow: 0 0 15px rgba(99, 102, 241, 0.5); }
-      100% { box-shadow: 0 0 30px rgba(99, 102, 241, 0.9); }
-    }
-
-    .toast-msg {
-      margin-top: 16px;
-      font-size: 0.88rem;
-      min-height: 22px;
-      color: var(--text-muted);
-      transition: all 0.3s ease;
-    }
-
-    .toast-msg.success {
-      color: #34d399;
-      font-weight: 600;
-    }
-
-    .toast-msg.error {
-      color: var(--danger);
-      font-weight: 600;
-    }
-
-    /* Stats Grid */
-    .stats-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-
-    .stat-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 18px;
-      padding: 14px 16px;
-      backdrop-filter: blur(12px);
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-    }
-
-    .stat-label {
-      font-size: 0.72rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      color: var(--text-muted);
-      font-weight: 600;
-    }
-
-    .stat-val {
-      font-size: 1.15rem;
-      font-weight: 700;
-      color: var(--text-main);
-      display: flex;
-      align-items: baseline;
-      gap: 4px;
-    }
-
-    .stat-sub {
-      font-size: 0.75rem;
-      color: var(--text-muted);
-      font-weight: 400;
-    }
-
-    /* Actions Section */
-    .section-card {
-      background: var(--card-bg);
-      border: 1px solid var(--card-border);
-      border-radius: 20px;
-      padding: 18px;
-      backdrop-filter: blur(12px);
-      display: flex;
-      flex-direction: column;
       gap: 14px;
     }
 
-    .section-header {
-      font-size: 0.88rem;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-      color: var(--text-muted);
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .action-row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-    }
-
-    .btn-secondary {
-      background: rgba(255, 255, 255, 0.05);
-      border: 1px solid var(--card-border);
-      color: var(--text-main);
-      padding: 12px;
+    .brand-icon {
+      width: 44px;
+      height: 44px;
       border-radius: 14px;
-      font-weight: 600;
-      font-size: 0.85rem;
-      cursor: pointer;
+      background: radial-gradient(circle at 30% 30%, #3b82f6, #1e3a8a);
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 8px;
-      transition: all 0.2s ease;
+      box-shadow: 0 4px 14px var(--accent-glow);
+      color: #fff;
     }
 
-    .btn-secondary:hover {
-      background: rgba(255, 255, 255, 0.1);
-      border-color: rgba(255, 255, 255, 0.2);
+    .brand-titles {
+      display: flex;
+      flex-direction: column;
     }
 
-    .btn-secondary:active {
+    .brand-name {
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      line-height: 1.1;
+    }
+
+    .brand-sub {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 3px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .header-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .online-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 0.78rem;
+      font-weight: 600;
+      background: rgba(16, 185, 129, 0.12);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.25);
+    }
+
+    .online-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background-color: var(--success);
+      box-shadow: 0 0 8px var(--success);
+    }
+
+    /* THEME TOGGLE */
+    .theme-toggle-btn {
+      width: 40px;
+      height: 40px;
+      border-radius: 12px;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: all var(--transition-speed) ease;
+    }
+
+    .theme-toggle-btn:hover {
+      background: var(--card-hover);
+      transform: translateY(-1px);
+    }
+
+    /* MAIN HERO CARD */
+    .hero-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 22px;
+      padding: 32px 28px;
+      display: grid;
+      grid-template-columns: 1fr 1.1fr;
+      gap: 36px;
+      align-items: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+      transition: all var(--transition-speed) ease;
+      position: relative;
+      overflow: hidden;
+    }
+
+    /* ARCHITECTURAL GARAGE SVG */
+    .garage-art-col {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+    }
+
+    .garage-svg-wrap {
+      width: 100%;
+      max-width: 340px;
+      aspect-ratio: 1.25;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .garage-svg {
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+    }
+
+    .slat {
+      transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease;
+    }
+
+    .slat-glow-bar {
+      filter: drop-shadow(0 0 6px var(--slat-glow));
+    }
+
+    /* HERO CONTROLS */
+    .hero-ctrl-col {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      justify-content: center;
+    }
+
+    .door-header-label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+
+    .door-title-row {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-top: -8px;
+    }
+
+    .door-state-text {
+      font-size: 2.8rem;
+      font-weight: 800;
+      letter-spacing: -0.03em;
+      line-height: 1;
+    }
+
+    .door-pct-text {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    /* BIG PRIMARY ACTION BUTTON */
+    .btn-door-action {
+      background: var(--accent-blue);
+      color: #ffffff;
+      border: none;
+      padding: 14px 28px;
+      border-radius: 14px;
+      font-size: 1.15rem;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      cursor: pointer;
+      width: fit-content;
+      min-width: 170px;
+      box-shadow: 0 4px 18px var(--accent-glow);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .btn-door-action:hover {
+      background: var(--accent-blue-hover);
+      transform: translateY(-2px);
+      box-shadow: 0 6px 22px var(--accent-glow);
+    }
+
+    .btn-door-action:active {
       transform: scale(0.97);
     }
 
-    .btn-pair {
-      grid-column: span 2;
-      background: linear-gradient(135deg, rgba(147, 51, 234, 0.25), rgba(79, 70, 229, 0.25));
-      border: 1px solid rgba(168, 85, 247, 0.4);
-      color: #e9d5ff;
+    .btn-door-action.busy {
+      opacity: 0.75;
+      pointer-events: none;
     }
 
-    .btn-pair:hover {
-      background: linear-gradient(135deg, rgba(147, 51, 234, 0.35), rgba(79, 70, 229, 0.35));
-      border-color: rgba(168, 85, 247, 0.6);
-    }
-
-    /* Activity Log */
-    .log-list {
+    /* POSITION SLIDER */
+    .position-slider-box {
       display: flex;
       flex-direction: column;
       gap: 8px;
-      max-height: 180px;
-      overflow-y: auto;
-      padding-right: 4px;
+      margin-top: 4px;
     }
 
-    .log-list::-webkit-scrollbar {
-      width: 4px;
-    }
-    .log-list::-webkit-scrollbar-thumb {
-      background: rgba(255, 255, 255, 0.2);
-      border-radius: 4px;
+    .slider-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
     }
 
-    .log-item {
+    .range-wrap {
+      position: relative;
+      width: 100%;
+      height: 8px;
+      background: var(--track-bg);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+
+    .range-fill {
+      height: 100%;
+      background: var(--accent-blue);
+      width: 0%;
+      border-radius: 6px;
+      transition: width 0.3s ease;
+    }
+
+    .slider-sub-labels {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* TOGGLE CARDS ROW */
+    .toggle-cards-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .toggle-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 18px;
+      padding: 20px 22px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 8px 12px;
-      background: rgba(0, 0, 0, 0.2);
-      border-radius: 10px;
-      font-size: 0.78rem;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      transition: background-color var(--transition-speed) ease;
     }
 
-    .log-action {
-      font-weight: 600;
-      color: var(--text-main);
+    .card-info-left {
+      display: flex;
+      align-items: center;
+      gap: 16px;
     }
 
-    .log-details {
+    .card-icon-badge {
+      width: 44px;
+      height: 44px;
+      border-radius: 14px;
+      background: var(--card-inner);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--accent-cyan);
+      border: 1px solid var(--card-border);
+    }
+
+    .card-icon-badge.light-on {
+      background: rgba(234, 179, 8, 0.18);
+      color: #eab308;
+      border-color: rgba(234, 179, 8, 0.3);
+    }
+
+    .card-titles {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 700;
+    }
+
+    .card-subtitle {
+      font-size: 0.8rem;
       color: var(--text-muted);
-      font-size: 0.72rem;
+      margin-top: 2px;
     }
 
-    .log-time {
+    /* SLEEK IOS TOGGLE SWITCH */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 52px;
+      height: 30px;
+      flex-shrink: 0;
+    }
+
+    .switch input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background-color: var(--toggle-off);
+      transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 34px;
+    }
+
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 24px;
+      width: 24px;
+      left: 3px;
+      bottom: 3px;
+      background-color: var(--toggle-thumb);
+      transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+    }
+
+    input:checked + .slider {
+      background-color: var(--accent-blue);
+    }
+
+    input:checked + .slider:before {
+      transform: translateX(22px);
+    }
+
+    /* TELEMETRY ROW */
+    .telemetry-row {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 12px;
+    }
+
+    .telemetry-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+      transition: background-color var(--transition-speed) ease;
+    }
+
+    .telemetry-icon {
       color: var(--text-muted);
-      font-size: 0.7rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .telemetry-text {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .telemetry-label {
+      font-size: 0.68rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
       white-space: nowrap;
     }
 
-    /* Modal Styles */
+    .telemetry-value {
+      font-size: 0.95rem;
+      font-weight: 700;
+      white-space: nowrap;
+    }
+
+    .telemetry-value.green {
+      color: var(--success);
+    }
+
+    /* COLLAPSIBLE STRIP CARDS */
+    .strip-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+      cursor: pointer;
+      transition: all var(--transition-speed) ease;
+    }
+
+    .strip-card:hover {
+      background: var(--card-hover);
+    }
+
+    .strip-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 100%;
+    }
+
+    .strip-title-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+    }
+
+    .strip-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+
+    .strip-pill {
+      background: var(--card-inner);
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      border: 1px solid var(--card-border);
+    }
+
+    .strip-chevron {
+      transition: transform 0.25s ease;
+    }
+
+    .strip-card.expanded .strip-chevron {
+      transform: rotate(180deg);
+    }
+
+    .strip-drawer {
+      display: none;
+      padding-top: 12px;
+      border-top: 1px solid var(--card-border);
+      cursor: default;
+    }
+
+    .strip-card.expanded .strip-drawer {
+      display: block;
+    }
+
+    /* HARDWARE DETAILS GRID */
+    .hw-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .hw-item {
+      background: var(--card-inner);
+      padding: 10px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--card-border);
+    }
+
+    .hw-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .hw-val {
+      font-size: 0.95rem;
+      font-weight: 700;
+      margin-top: 2px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+
+    /* ACTION BUTTONS GRID IN SETTINGS */
+    .actions-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 10px;
+    }
+
+    .btn-action-tile {
+      background: var(--card-inner);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 12px 14px;
+      border-radius: 12px;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      transition: all 0.2s ease;
+    }
+
+    .btn-action-tile:hover {
+      background: var(--card-hover);
+      border-color: var(--accent-blue);
+      transform: translateY(-1px);
+    }
+
+    /* LIVE LOGS BAR */
+    .logs-bar {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 14px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+      cursor: pointer;
+      transition: all var(--transition-speed) ease;
+    }
+
+    .logs-summary-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .logs-title-wrap {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--success);
+      flex-shrink: 0;
+    }
+
+    .logs-latest-msg {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+
+    .logs-drawer {
+      display: none;
+      max-height: 200px;
+      overflow-y: auto;
+      background: var(--card-inner);
+      border: 1px solid var(--card-border);
+      border-radius: 10px;
+      padding: 10px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.78rem;
+    }
+
+    .logs-bar.expanded .logs-drawer {
+      display: block;
+    }
+
+    .log-line {
+      padding: 4px 6px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      display: flex;
+      gap: 8px;
+    }
+
+    .log-line.error {
+      color: var(--danger);
+    }
+
+    /* FOOTER */
+    footer {
+      text-align: center;
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 14px;
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+    }
+
+    /* MODAL DIALOGS */
     .modal-overlay {
       position: fixed;
       top: 0;
@@ -381,12 +726,12 @@
       right: 0;
       bottom: 0;
       background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(8px);
+      backdrop-filter: blur(6px);
       display: none;
       align-items: center;
       justify-content: center;
+      z-index: 1000;
       padding: 20px;
-      z-index: 100;
     }
 
     .modal-overlay.active {
@@ -394,223 +739,498 @@
     }
 
     .modal-box {
-      background: #131b2e;
+      background: var(--card-bg);
       border: 1px solid var(--card-border);
-      border-radius: 22px;
-      padding: 24px;
-      max-width: 420px;
+      border-radius: 20px;
+      max-width: 440px;
       width: 100%;
-      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      padding: 24px;
       display: flex;
       flex-direction: column;
       gap: 16px;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
     }
 
     .modal-title {
       font-size: 1.15rem;
-      font-weight: 700;
+      font-weight: 800;
       display: flex;
       align-items: center;
       gap: 8px;
     }
 
     .modal-step {
-      font-size: 0.85rem;
+      font-size: 0.88rem;
       line-height: 1.45;
-      color: #cbd5e1;
+      color: var(--text-muted);
+      background: var(--card-inner);
       padding: 10px 12px;
-      background: rgba(255, 255, 255, 0.03);
       border-radius: 10px;
-      border-left: 3px solid var(--accent-purple);
-    }
-
-    .input-field {
-      width: 100%;
-      background: rgba(0, 0, 0, 0.4);
       border: 1px solid var(--card-border);
-      border-radius: 12px;
-      padding: 12px;
-      color: white;
-      font-size: 0.95rem;
-      outline: none;
     }
 
-    .input-field:focus {
-      border-color: var(--accent-purple);
+    .modal-step strong {
+      color: var(--text-main);
     }
 
     .modal-actions {
       display: flex;
-      gap: 10px;
       justify-content: flex-end;
-      margin-top: 8px;
+      gap: 10px;
+      margin-top: 6px;
     }
 
     .btn-modal {
       padding: 10px 18px;
-      border-radius: 12px;
-      font-size: 0.88rem;
+      border-radius: 10px;
       font-weight: 600;
+      font-size: 0.88rem;
       cursor: pointer;
       border: none;
     }
 
     .btn-cancel {
-      background: rgba(255, 255, 255, 0.08);
+      background: var(--card-inner);
       color: var(--text-main);
+      border: 1px solid var(--card-border);
     }
 
     .btn-confirm {
-      background: var(--accent-purple);
-      color: white;
+      background: var(--accent-blue);
+      color: #fff;
+    }
+
+    .input-field {
+      width: 100%;
+      background: var(--card-inner);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 10px 14px;
+      border-radius: 10px;
+      font-size: 1rem;
+      outline: none;
+    }
+
+    /* RESPONSIVE DESIGN FOR IPHONE / MOBILE */
+    @media (max-width: 768px) {
+      body {
+        padding: 12px 12px 90px 12px;
+      }
+
+      .hero-card {
+        grid-template-columns: 1fr;
+        gap: 24px;
+        padding: 24px 18px;
+        text-align: center;
+      }
+
+      .hero-ctrl-col {
+        align-items: center;
+      }
+
+      .door-title-row {
+        justify-content: center;
+      }
+
+      .btn-door-action {
+        width: 100%;
+        max-width: 320px;
+      }
+
+      .position-slider-box {
+        width: 100%;
+      }
+
+      .toggle-cards-row {
+        grid-template-columns: 1fr;
+        gap: 12px;
+      }
+
+      .telemetry-row {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .telemetry-card:last-child {
+        grid-column: span 2;
+      }
+
+      .brand-name {
+        font-size: 1.2rem;
+      }
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <!-- Header -->
+
+    <!-- HEADER BAR -->
     <header>
-      <div class="brand">
-        <div class="logo-icon">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-            <path d="M19 4H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm-1 2v3H6V6h12zm0 5v3H6v-3h12zm0 5v3H6v-3h12z"/>
+      <div class="brand-left">
+        <div class="brand-icon">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="4" y="4" width="16" height="16" rx="2"/>
+            <rect x="9" y="9" width="6" height="6"/>
+            <path d="M9 1v3m6-3v3m-6 17v3m6-3v3M1 9h3m-3 6h3m17-6h3m-3 6h3"/>
           </svg>
         </div>
-        <div>
-          <div class="brand-title">Garage Controller</div>
-          <div class="brand-subtitle">
-            <span class="purple-tag">315 MHz</span> Security+ 1.0
-          </div>
+        <div class="brand-titles">
+          <div class="brand-name">GDO</div>
+          <div class="brand-sub">Chamberlain Security+ 1.0 • 315MHz</div>
         </div>
       </div>
-      <div id="statusBadge" class="status-badge">
-        <div class="pulse-dot"></div>
-        <span id="statusText">Connected</span>
+
+      <div class="header-actions">
+        <div class="online-badge">
+          <div class="online-dot"></div>
+          <span>Online</span>
+        </div>
+
+        <!-- Dark / Light Mode Switch Button -->
+        <button id="themeToggleBtn" class="theme-toggle-btn" aria-label="Toggle Theme" onclick="toggleTheme()">
+          <!-- Moon Icon (for dark mode) -->
+          <svg id="moonIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
+          <!-- Sun Icon (for light mode) -->
+          <svg id="sunIcon" style="display: none;" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="5"/>
+            <line x1="12" y1="1" x2="12" y2="3"/>
+            <line x1="12" y1="21" x2="12" y2="23"/>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+            <line x1="1" y1="12" x2="3" y2="12"/>
+            <line x1="21" y1="12" x2="23" y2="12"/>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+          </svg>
+        </button>
       </div>
     </header>
 
-    <!-- Main Door Card -->
-    <div class="door-card">
-      <div class="door-graphic">
-        <svg class="door-svg" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect x="10" y="8" width="44" height="48" rx="4" stroke="#a855f7" stroke-width="3" fill="#1e1b4b"/>
-          <line x1="10" y1="20" x2="54" y2="20" stroke="#a855f7" stroke-width="2"/>
-          <line x1="10" y1="32" x2="54" y2="32" stroke="#a855f7" stroke-width="2"/>
-          <line x1="10" y1="44" x2="54" y2="44" stroke="#a855f7" stroke-width="2"/>
-          <circle cx="32" cy="48" r="2.5" fill="#c084fc"/>
-        </svg>
+    <!-- HERO GARAGE DOOR CARD -->
+    <div class="hero-card">
+      
+      <!-- Architectural Graphic Vector -->
+      <div class="garage-art-col">
+        <div class="garage-svg-wrap">
+          <svg class="garage-svg" viewBox="0 0 320 250" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Roof / House Outline -->
+            <path d="M160 30L30 95V220H290V95L160 30Z" stroke="var(--text-muted)" stroke-width="2.5" stroke-linejoin="round" opacity="0.35"/>
+            <path d="M50 100V220H270V100" stroke="var(--text-muted)" stroke-width="2.5" stroke-linejoin="round" opacity="0.45"/>
+            <line x1="20" y1="220" x2="300" y2="220" stroke="var(--text-muted)" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+
+            <!-- Door Frame Clip Path -->
+            <defs>
+              <clipPath id="doorFrameClip">
+                <rect x="68" y="105" width="184" height="114" rx="4" />
+              </clipPath>
+            </defs>
+
+            <!-- Garage Door Slat Group (Smoothly animated up/down based on state) -->
+            <g clip-path="url(#doorFrameClip)">
+              <g id="slatsGroup" class="slat" transform="translate(0, 0)">
+                <!-- Slat 1 -->
+                <rect x="70" y="108" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
+                <!-- Slat 2 -->
+                <rect x="70" y="125" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
+                <!-- Slat 3 -->
+                <rect x="70" y="142" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
+                <!-- Slat 4 -->
+                <rect x="70" y="159" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
+                <!-- Slat 5 -->
+                <rect x="70" y="176" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
+                <!-- Slat 6 -->
+                <rect x="70" y="193" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
+                <!-- Bottom Highlight Bar Slat (Illuminated like in screenshot) -->
+                <rect id="slatHighlight" class="slat-glow-bar" x="70" y="209" width="180" height="8" rx="2" fill="var(--slat-highlight)"/>
+              </g>
+            </g>
+          </svg>
+        </div>
       </div>
 
-      <button id="toggleBtn" class="btn-toggle" onclick="toggleDoor()">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor">
-          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8zm-1-13h2v6h-2zm0 8h2v2h-2z"/>
-        </svg>
-        <span>TOGGLE DOOR</span>
-      </button>
+      <!-- Hero Control Column -->
+      <div class="hero-ctrl-col">
+        <div class="door-header-label">GARAGE DOOR</div>
+        <div class="door-title-row">
+          <div class="door-state-text" id="doorState">Closed</div>
+          <div class="door-pct-text" id="doorPct">0% open</div>
+        </div>
 
-      <div style="display: flex; gap: 12px; margin-top: 14px; width: 100%; max-width: 320px; justify-content: center;">
-        <button id="lightBtn" class="btn-secondary" style="width: 100%; padding: 12px 18px; border-radius: 16px; font-weight: 600; display: flex; align-items: center; justify-content: center; gap: 8px; background: rgba(234, 179, 8, 0.15); border: 1px solid rgba(234, 179, 8, 0.3); color: #fde047;" onclick="toggleLight()">
+        <!-- Big Primary Action Button -->
+        <button id="doorActionBtn" class="btn-door-action" onclick="toggleDoor()">
+          <svg id="doorActionIcon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <polyline points="16 12 12 8 8 12"/>
+            <line x1="12" y1="16" x2="12" y2="8"/>
+          </svg>
+          <span id="doorActionText">Open</span>
+        </button>
+
+        <!-- Position Slider Track -->
+        <div class="position-slider-box">
+          <div class="slider-labels">
+            <span>Set position</span>
+            <span id="sliderPctLabel">0%</span>
+          </div>
+          <div class="range-wrap">
+            <div id="rangeFill" class="range-fill"></div>
+          </div>
+          <div class="slider-sub-labels">
+            <span>Closed</span>
+            <span>Fully open</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- TOGGLE CARDS ROW (Light & Remote Lock) -->
+    <div class="toggle-cards-row">
+      <!-- Garage Light Card -->
+      <div class="toggle-card">
+        <div class="card-info-left">
+          <div id="lightIconBadge" class="card-icon-badge">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M9 18h6m-4 4h2m-7-12a6 6 0 1 1 12 0c0 2.5-1.5 4-2.5 5.5-.5.8-.5 1.5-.5 2.5h-6c0-1 0-1.7-.5-2.5C7.5 14 6 12.5 6 10z"/>
+            </svg>
+          </div>
+          <div class="card-titles">
+            <div class="card-title">Garage Light</div>
+            <div class="card-subtitle" id="lightSubtitle">Off</div>
+          </div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="lightToggleSwitch" onchange="toggleLightSwitch(this.checked)">
+          <span class="slider"></span>
+        </label>
+      </div>
+
+      <!-- Remote Lock Card -->
+      <div class="toggle-card">
+        <div class="card-info-left">
+          <div id="lockIconBadge" class="card-icon-badge">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+          </div>
+          <div class="card-titles">
+            <div class="card-title">Remote lock</div>
+            <div class="card-subtitle" id="lockSubtitle">Unlocked</div>
+          </div>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="lockToggleSwitch" onchange="toggleLockSwitch(this.checked)">
+          <span class="slider"></span>
+        </label>
+      </div>
+    </div>
+
+    <!-- TELEMETRY BADGES ROW -->
+    <div class="telemetry-row">
+      <div class="telemetry-card">
+        <div class="telemetry-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v2m0 16v2m-8-10H2m20 0h-2m-2.93-7.07l-1.41 1.41m-9.32 9.32l-1.41 1.41m0-12.14l1.41 1.41m9.32 9.32l1.41 1.41M12 6a6 6 0 100 12 6 6 0 000-12z"/>
+            <path d="M5 12h14M5 12l4-4m-4 4l4 4m10-4l-4-4m4 4l-4 4"/>
           </svg>
-          Toggle Opener Light
-        </button>
+        </div>
+        <div class="telemetry-text">
+          <div class="telemetry-label">Obstruction</div>
+          <div class="telemetry-value" id="telemObstruction">Clear</div>
+        </div>
       </div>
 
-      <div id="toast" class="toast-msg">Ready to transmit</div>
-    </div>
-
-    <!-- Stats Grid -->
-    <div class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-label">Rolling Counter</div>
-        <div class="stat-val" id="rollingVal">----</div>
-        <div class="stat-sub" id="rollingHex">Hex: ----</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Virtual Remote ID</div>
-        <div class="stat-val" id="fixedVal">----</div>
-        <div class="stat-sub" id="fixedHex">Hex: ----</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Frequency</div>
-        <div class="stat-val">315.00 <span class="stat-sub">MHz</span></div>
-        <div class="stat-sub">Purple Learn Code</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label">Transceiver</div>
-        <div class="stat-val" id="radioChip">CC1101</div>
-        <div class="stat-sub" id="radioState">State: 0x01 (IDLE)</div>
-      </div>
-    </div>
-
-    <!-- Actions -->
-    <div class="section-card">
-      <div class="section-header">
-        <span>Remote Management</span>
-      </div>
-      <div class="action-row">
-        <button class="btn-secondary btn-pair" onclick="openPairModal()">
-          <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-          </svg>
-          Pair Door (Purple Button)
-        </button>
-        <button class="btn-secondary btn-pair" style="background: linear-gradient(135deg, rgba(234, 179, 8, 0.25), rgba(245, 158, 11, 0.25)); border-color: rgba(234, 179, 8, 0.5); color: #fde047;" onclick="openPairLightModal()">
+      <div class="telemetry-card">
+        <div class="telemetry-icon">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v2m0 16v2m-8-10H2m20 0h-2m-2.93-7.07l-1.41 1.41m-9.32 9.32l-1.41 1.41m0-12.14l1.41 1.41m9.32 9.32l1.41 1.41M12 6a6 6 0 100 12 6 6 0 000-12z"/>
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
-          Pair Opener Light (Wall Panel)
-        </button>
-        <button class="btn-secondary" onclick="openSyncModal()">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-          </svg>
-          Sync Counter
-        </button>
-        <button class="btn-secondary" onclick="resetRemoteId()">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
-          </svg>
-          New Remote ID
-        </button>
-        <button class="btn-secondary" onclick="testRf()">
-          <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
-          </svg>
-          Test RF Output
-        </button>
+        </div>
+        <div class="telemetry-text">
+          <div class="telemetry-label">Motor</div>
+          <div class="telemetry-value" id="telemMotor">Idle</div>
+        </div>
       </div>
-    </div>
 
-    <!-- Live Activity Log -->
-    <div class="section-card">
-      <div class="section-header">
-        <span>Activity Log</span>
+      <div class="telemetry-card">
+        <div class="telemetry-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="6" y="2" width="12" height="20" rx="3"/>
+            <circle cx="12" cy="8" r="2"/>
+          </svg>
+        </div>
+        <div class="telemetry-text">
+          <div class="telemetry-label">Wall Button</div>
+          <div class="telemetry-value" id="telemWall">Released</div>
+        </div>
       </div>
-      <div id="logList" class="log-list">
-        <div class="log-item">
-          <div class="log-action">Connecting to server...</div>
+
+      <div class="telemetry-card">
+        <div class="telemetry-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="23 4 23 10 17 10"/>
+            <polyline points="1 20 1 14 7 14"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+          </svg>
+        </div>
+        <div class="telemetry-text">
+          <div class="telemetry-label">Cycles</div>
+          <div class="telemetry-value" id="telemCycles">----</div>
+        </div>
+      </div>
+
+      <div class="telemetry-card">
+        <div class="telemetry-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2">
+            <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+            <polyline points="22 4 12 14.01 9 11.01"/>
+          </svg>
+        </div>
+        <div class="telemetry-text">
+          <div class="telemetry-label">Synced</div>
+          <div class="telemetry-value green" id="telemSynced">Yes</div>
         </div>
       </div>
     </div>
+
+    <!-- COLLAPSIBLE DEVICE INFO STRIP -->
+    <div id="deviceStrip" class="strip-card" onclick="toggleStrip('deviceStrip')">
+      <div class="strip-header">
+        <div class="strip-title-group">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="16" x2="12" y2="12"/>
+            <line x1="12" y1="8" x2="12.01" y2="8"/>
+          </svg>
+          <span>Device</span>
+        </div>
+        <div class="strip-right">
+          <span class="strip-pill" id="deviceRssiPill">📶 -51 dBm • 98%</span>
+          <svg class="strip-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+      </div>
+      <div class="strip-drawer" onclick="event.stopPropagation()">
+        <div class="hw-grid">
+          <div class="hw-item">
+            <div class="hw-label">Transceiver</div>
+            <div class="hw-val" id="hwRadio">TI CC1101</div>
+          </div>
+          <div class="hw-item">
+            <div class="hw-label">Frequency</div>
+            <div class="hw-val" id="hwFreq">315.00 MHz</div>
+          </div>
+          <div class="hw-item">
+            <div class="hw-label">Chip Version</div>
+            <div class="hw-val" id="hwVersion">0x14</div>
+          </div>
+          <div class="hw-item">
+            <div class="hw-label">Radio State</div>
+            <div class="hw-val" id="hwState">0x01 (IDLE)</div>
+          </div>
+          <div class="hw-item">
+            <div class="hw-label">Virtual Remote ID</div>
+            <div class="hw-val" id="hwFixed">----</div>
+          </div>
+          <div class="hw-item">
+            <div class="hw-label">Burst Repeats</div>
+            <div class="hw-val" id="hwRepeats">8 Bursts</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- COLLAPSIBLE SETTINGS STRIP -->
+    <div id="settingsStrip" class="strip-card" onclick="toggleStrip('settingsStrip')">
+      <div class="strip-header">
+        <div class="strip-title-group">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+          <span>Settings</span>
+        </div>
+        <div class="strip-right">
+          <span class="strip-pill">Security+ 1.0 • 315 MHz ▾</span>
+          <svg class="strip-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </div>
+      </div>
+      <div class="strip-drawer" onclick="event.stopPropagation()">
+        <div class="actions-grid">
+          <button class="btn-action-tile" onclick="openPairModal()">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            Pair Door (Purple Button)
+          </button>
+          <button class="btn-action-tile" onclick="openPairLightModal()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v2m0 16v2m-8-10H2m20 0h-2m-2.93-7.07l-1.41 1.41m-9.32 9.32l-1.41 1.41m0-12.14l1.41 1.41m9.32 9.32l1.41 1.41M12 6a6 6 0 100 12 6 6 0 000-12z"/></svg>
+            Pair Light (Wall Panel)
+          </button>
+          <button class="btn-action-tile" onclick="openSyncModal()">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+            Sync Rolling Counter
+          </button>
+          <button class="btn-action-tile" onclick="resetRemoteId()">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
+            Generate New Remote ID
+          </button>
+          <button class="btn-action-tile" onclick="testRf()">
+            <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/></svg>
+            Test 315MHz RF Output
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- LIVE LOGS BAR (Matching screenshot bottom bar) -->
+    <div id="logsBar" class="logs-bar" onclick="toggleLogs()">
+      <div class="logs-summary-row">
+        <div class="logs-title-wrap">
+          <div class="online-dot" style="width: 6px; height: 6px;"></div>
+          <span>LIVE LOGS</span>
+        </div>
+        <div class="logs-latest-msg" id="logsPreview">Waiting for activity...</div>
+        <svg class="strip-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </div>
+      <div class="logs-drawer" id="logsDrawer" onclick="event.stopPropagation()">
+        <!-- Filled dynamically -->
+      </div>
+    </div>
+
+    <!-- FOOTER -->
+    <footer>
+      <span>Chamberlain CC1101</span>
+      <span>•</span>
+      <span>Security+ 1.0 (315 MHz)</span>
+      <span>•</span>
+      <span>Raspberry Pi</span>
+    </footer>
+
   </div>
 
-  <!-- Pair Modal -->
+  <!-- MODALS -->
+
+  <!-- Pair Door Modal -->
   <div id="pairModal" class="modal-overlay">
     <div class="modal-box">
       <div class="modal-title">
-        <svg width="22" height="22" fill="#c084fc" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-        Pair with Garage Opener
+        <svg width="22" height="22" fill="#3b82f6" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+        Pair Garage Door (Button 0)
       </div>
       <div class="modal-step">
-        <strong>Step 1:</strong> Walk over to your garage opener ceiling unit.
+        <strong>Step 1:</strong> Walk over to your garage ceiling opener.
       </div>
       <div class="modal-step">
-        <strong>Step 2:</strong> Press and release the <strong>PURPLE</strong> learn button. The LED will turn solid ON.
+        <strong>Step 2:</strong> Press and release the <strong>PURPLE</strong> learn button. The LED will turn solid ON for 30s.
       </div>
       <div class="modal-step">
-        <strong>Step 3:</strong> Click "Send Pairing Signal" below. The opener lights will flash twice upon success.
+        <strong>Step 3:</strong> Click "Send Pairing Signal" below. Opener lights will flash twice upon success!
       </div>
       <div class="modal-actions">
         <button class="btn-modal btn-cancel" onclick="closePairModal()">Cancel</button>
@@ -622,37 +1242,37 @@
   <!-- Pair Light Modal -->
   <div id="pairLightModal" class="modal-overlay">
     <div class="modal-box">
-      <div class="modal-title" style="color: #fde047;">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fde047" stroke-width="2">
+      <div class="modal-title" style="color: #eab308;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#eab308" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v2m0 16v2m-8-10H2m20 0h-2m-2.93-7.07l-1.41 1.41m-9.32 9.32l-1.41 1.41m0-12.14l1.41 1.41m9.32 9.32l1.41 1.41M12 6a6 6 0 100 12 6 6 0 000-12z"/>
         </svg>
         Pair Opener Light (Button 1)
       </div>
       <div class="modal-step">
-        <strong>Step 1:</strong> Make sure the garage door is completely <strong>CLOSED</strong>.
+        <strong>Step 1:</strong> Make sure the garage door is <strong>CLOSED</strong>.
       </div>
       <div class="modal-step">
-        <strong>Step 2:</strong> Go to your <strong>Wall Door Control Panel</strong> (do NOT press the purple ceiling button).
+        <strong>Step 2:</strong> Go to your <strong>Wall Door Control Panel</strong> (do NOT press the ceiling purple button).
       </div>
       <div class="modal-step">
-        <strong>Step 3:</strong> Press and hold the <strong>LIGHT</strong> button, and while holding it, also press and hold the <strong>LOCK</strong> button.
+        <strong>Step 3:</strong> Press and hold the <strong>LIGHT</strong> button, and while holding it, also press and hold <strong>LOCK</strong>.
       </div>
       <div class="modal-step">
-        <strong>Step 4:</strong> Click "Send Light Pairing Signal" below. Keep holding the wall buttons until the opener lights <strong>flash</strong>!
+        <strong>Step 4:</strong> Click "Send Light Pairing Signal" below. Keep holding wall buttons until the lights <strong>flash</strong>!
       </div>
       <div class="modal-actions">
         <button class="btn-modal btn-cancel" onclick="closePairLightModal()">Cancel</button>
-        <button id="sendPairLightBtn" class="btn-modal btn-confirm" style="background: linear-gradient(135deg, #eab308, #ca8a04); color: #000; font-weight: 700;" onclick="sendPairLight()">Send Light Pairing Signal</button>
+        <button id="sendPairLightBtn" class="btn-modal btn-confirm" style="background: #eab308; color: #000; font-weight: 700;" onclick="sendPairLight()">Send Light Pairing Signal</button>
       </div>
     </div>
   </div>
 
-  <!-- Manual Counter Sync Modal -->
+  <!-- Sync Counter Modal -->
   <div id="syncModal" class="modal-overlay">
     <div class="modal-box">
       <div class="modal-title">Manual Counter Adjustment</div>
-      <p style="font-size: 0.85rem; color: #94a3b8;">If the rolling counter got desynchronized, enter the new starting value:</p>
-      <input type="number" id="syncInput" class="input-field" placeholder="Enter integer counter (e.g. 1050)">
+      <p style="font-size: 0.85rem; color: var(--text-muted);">If rolling counter desynchronized, enter a higher counter value:</p>
+      <input type="number" id="syncInput" class="input-field" placeholder="e.g. 5000">
       <div class="modal-actions">
         <button class="btn-modal btn-cancel" onclick="closeSyncModal()">Cancel</button>
         <button class="btn-modal btn-confirm" onclick="submitSync()">Save Counter</button>
@@ -662,213 +1282,228 @@
 
   <script>
     let isTransmitting = false;
+    let currentDoorState = "CLOSED";
+    let currentPercent = 0;
 
+    // THEME HANDLING (Dark / Light)
+    function initTheme() {
+      const saved = localStorage.getItem("gdo_theme") || "dark";
+      setTheme(saved);
+    }
+
+    function toggleTheme() {
+      const cur = document.documentElement.getAttribute("data-theme") || "dark";
+      const next = cur === "dark" ? "light" : "dark";
+      setTheme(next);
+    }
+
+    function setTheme(theme) {
+      document.documentElement.setAttribute("data-theme", theme);
+      localStorage.setItem("gdo_theme", theme);
+      const moon = document.getElementById("moonIcon");
+      const sun = document.getElementById("sunIcon");
+      if (theme === "light") {
+        moon.style.display = "none";
+        sun.style.display = "block";
+      } else {
+        moon.style.display = "block";
+        sun.style.display = "none";
+      }
+    }
+
+    initTheme();
+
+    // STATUS POLLING
     async function fetchStatus() {
       try {
         const res = await fetch('/api/status');
         if (!res.ok) return;
         const data = await res.json();
-
-        // Update stats
-        document.getElementById('rollingVal').textContent = data.rolling_code;
-        document.getElementById('rollingHex').textContent = 'Hex: ' + data.rolling_code_hex;
-        document.getElementById('fixedVal').textContent = data.fixed_code;
-        document.getElementById('fixedHex').textContent = 'Hex: ' + data.fixed_code_hex;
-
-        const badge = document.getElementById('statusBadge');
-        const badgeText = document.getElementById('statusText');
-        if (data.hardware.is_simulation) {
-          badge.className = 'status-badge simulation';
-          badgeText.textContent = 'Sim Mode';
-        } else {
-          badge.className = 'status-badge';
-          badgeText.textContent = 'Connected';
-        }
-
-        document.getElementById('radioState').textContent = 'State: ' + data.hardware.state;
-
-        // Update logs
-        if (data.recent_logs) {
-          renderLogs(data.recent_logs);
-        }
+        updateUI(data);
       } catch (err) {
-        console.warn('Status fetch error:', err);
+        console.warn("Status fetch failed:", err);
       }
     }
 
-    function renderLogs(logs) {
-      const container = document.getElementById('logList');
-      if (!logs || logs.length === 0) {
-        container.innerHTML = '<div class="log-item"><span class="log-details">No recent activity</span></div>';
-        return;
+    function updateUI(data) {
+      // Door State & Percentage
+      const door = data.door || {};
+      currentDoorState = (door.state || "CLOSED").toUpperCase();
+      currentPercent = typeof door.percent === "number" ? door.percent : (currentDoorState === "OPEN" ? 100 : 0);
+
+      const stateEl = document.getElementById("doorState");
+      const pctEl = document.getElementById("doorPct");
+      const sliderPct = document.getElementById("sliderPctLabel");
+      const rangeFill = document.getElementById("rangeFill");
+      const actionBtn = document.getElementById("doorActionBtn");
+      const actionText = document.getElementById("doorActionText");
+      const actionIcon = document.getElementById("doorActionIcon");
+      const slatsGroup = document.getElementById("slatsGroup");
+
+      if (currentDoorState === "OPENING") {
+        stateEl.textContent = "Opening";
+        actionText.textContent = "Stop";
+        actionBtn.style.background = "#eab308";
+      } else if (currentDoorState === "CLOSING") {
+        stateEl.textContent = "Closing";
+        actionText.textContent = "Stop";
+        actionBtn.style.background = "#eab308";
+      } else if (currentDoorState === "OPEN") {
+        stateEl.textContent = "Open";
+        actionText.textContent = "Close";
+        actionBtn.style.background = "#3b82f6";
+      } else {
+        stateEl.textContent = "Closed";
+        actionText.textContent = "Open";
+        actionBtn.style.background = "#3b82f6";
       }
-      container.innerHTML = logs.map(l => `
-        <div class="log-item">
-          <div>
-            <div class="log-action" style="${l.success ? '' : 'color: #ef4444;'}">${escapeHtml(l.action)}</div>
-            <div class="log-details">${escapeHtml(l.details)}</div>
+
+      pctEl.textContent = `${currentPercent}% open`;
+      sliderPct.textContent = `${currentPercent}%`;
+      rangeFill.style.width = `${currentPercent}%`;
+
+      // Update architectural SVG slats position
+      // At 0% open, translate = 0. At 100% open, translate = -100px (retracted)
+      const translateY = -((currentPercent / 100) * 105);
+      slatsGroup.style.transform = `translate(0, ${translateY}px)`;
+
+      // Light Switch State
+      const lightOn = !!(data.light && data.light.on);
+      const lightSwitch = document.getElementById("lightToggleSwitch");
+      const lightSub = document.getElementById("lightSubtitle");
+      const lightBadge = document.getElementById("lightIconBadge");
+      lightSwitch.checked = lightOn;
+      lightSub.textContent = lightOn ? "On" : "Off";
+      if (lightOn) {
+        lightBadge.classList.add("light-on");
+      } else {
+        lightBadge.classList.remove("light-on");
+      }
+
+      // Lock Switch State
+      const isLocked = !!(data.security && data.security.remote_lock);
+      const lockSwitch = document.getElementById("lockToggleSwitch");
+      const lockSub = document.getElementById("lockSubtitle");
+      lockSwitch.checked = isLocked;
+      lockSub.textContent = isLocked ? "Locked" : "Unlocked";
+
+      // Telemetry
+      document.getElementById("telemObstruction").textContent = door.obstruction || "Clear";
+      document.getElementById("telemMotor").textContent = door.motor || "Idle";
+      document.getElementById("telemWall").textContent = door.wall_button || "Released";
+      document.getElementById("telemCycles").textContent = data.rolling_code ? data.rolling_code.toLocaleString() : "----";
+      document.getElementById("telemSynced").textContent = "Yes";
+
+      // Device Drawer
+      const hw = data.hardware || {};
+      document.getElementById("hwRadio").textContent = hw.is_simulation ? "Mock (Sim)" : "TI CC1101";
+      document.getElementById("hwFreq").textContent = `${data.frequency_mhz || 315.0} MHz`;
+      document.getElementById("hwVersion").textContent = hw.version || "0x14";
+      document.getElementById("hwState").textContent = hw.state || "0x01 (IDLE)";
+      document.getElementById("hwFixed").textContent = data.fixed_code_hex || (data.fixed_code ? `0x${data.fixed_code.toString(16).toUpperCase()}` : "----");
+      document.getElementById("hwRepeats").textContent = `${data.repeats || 8} Bursts`;
+
+      // Live Logs
+      const logs = data.recent_logs || [];
+      const preview = document.getElementById("logsPreview");
+      const drawer = document.getElementById("logsDrawer");
+      if (logs.length > 0) {
+        const top = logs[0];
+        preview.textContent = `${top.timestamp.split(" ")[1] || ""} [${top.action}] - ${top.details || "Success"}`;
+        
+        drawer.innerHTML = logs.map(l => `
+          <div class="log-line ${l.success ? '' : 'error'}">
+            <span>[${l.timestamp.split(" ")[1] || ""}]</span>
+            <strong>${l.action}:</strong>
+            <span>${l.details || ''}</span>
           </div>
-          <div class="log-time">${l.timestamp.split(' ')[1]}</div>
-        </div>
-      `).join('');
+        `).join('');
+      }
     }
 
-    function escapeHtml(str) {
-      return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
-
+    // TOGGLE DOOR
     async function toggleDoor() {
       if (isTransmitting) return;
+      const btn = document.getElementById("doorActionBtn");
+      btn.classList.add("busy");
       isTransmitting = true;
-
-      const btn = document.getElementById('toggleBtn');
-      const toast = document.getElementById('toast');
-
-      btn.classList.add('transmitting');
-      btn.querySelector('span').textContent = 'TRANSMITTING...';
-      toast.className = 'toast-msg';
-      toast.textContent = 'Sending 315.00 MHz rolling code packets...';
-
-      // Haptic feedback if available on mobile
-      if (navigator.vibrate) navigator.vibrate([100, 50, 100]);
 
       try {
         const res = await fetch('/api/toggle', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({})
+          body: JSON.stringify({ repeats: 8 })
         });
         const result = await res.json();
-
-        if (result.success) {
-          toast.className = 'toast-msg success';
-          toast.textContent = `Transmitted! Code #${result.sent_rolling_code} -> Next: #${result.next_rolling_code}`;
-          await fetchStatus();
-        } else {
-          toast.className = 'toast-msg error';
-          toast.textContent = 'Error: ' + (result.error || 'Transmission failed');
-        }
+        await fetchStatus();
       } catch (err) {
-        toast.className = 'toast-msg error';
-        toast.textContent = 'Network error: ' + err.message;
+        alert("Failed to toggle garage door: " + err.message);
       } finally {
-        setTimeout(() => {
-          btn.classList.remove('transmitting');
-          btn.querySelector('span').textContent = 'TOGGLE DOOR';
-          isTransmitting = false;
-        }, 600);
+        btn.classList.remove("busy");
+        isTransmitting = false;
       }
     }
 
-    async function toggleLight() {
-      if (isTransmitting) return;
-      isTransmitting = true;
-
-      const btn = document.getElementById('lightBtn');
-      const toast = document.getElementById('toast');
-      const origText = btn.innerHTML;
-
-      btn.style.opacity = '0.6';
-      toast.className = 'toast-msg';
-      toast.textContent = 'Transmitting Light toggle command (Button 1)...';
-
-      if (navigator.vibrate) navigator.vibrate(80);
-
+    // TOGGLE LIGHT SWITCH
+    async function toggleLightSwitch(targetChecked) {
       try {
         const res = await fetch('/api/light', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({})
+          body: JSON.stringify({ repeats: 8 })
         });
-        const result = await res.json();
-
-        if (result.success) {
-          toast.className = 'toast-msg success';
-          toast.textContent = `Light toggled! Next rolling code: #${result.next_rolling_code}`;
-          await fetchStatus();
-        } else {
-          toast.className = 'toast-msg error';
-          toast.textContent = 'Error: ' + (result.error || 'Failed to toggle light');
-        }
+        await fetchStatus();
       } catch (err) {
-        toast.className = 'toast-msg error';
-        toast.textContent = 'Network error: ' + err.message;
-      } finally {
-        setTimeout(() => {
-          btn.style.opacity = '1';
-          isTransmitting = false;
-        }, 600);
+        alert("Failed to toggle opener light: " + err.message);
+        await fetchStatus();
       }
     }
 
+    // TOGGLE REMOTE LOCK SWITCH
+    async function toggleLockSwitch(targetChecked) {
+      try {
+        const res = await fetch('/api/lock', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locked: targetChecked })
+        });
+        await fetchStatus();
+      } catch (err) {
+        alert("Failed to toggle remote lock: " + err.message);
+        await fetchStatus();
+      }
+    }
+
+    // STRIP TOGGLES
+    function toggleStrip(id) {
+      const el = document.getElementById(id);
+      el.classList.toggle("expanded");
+    }
+
+    function toggleLogs() {
+      const el = document.getElementById("logsBar");
+      el.classList.toggle("expanded");
+    }
+
+    // PAIR DOOR MODAL
     function openPairModal() {
       document.getElementById('pairModal').classList.add('active');
     }
-
     function closePairModal() {
       document.getElementById('pairModal').classList.remove('active');
     }
-
-    function openPairLightModal() {
-      document.getElementById('pairLightModal').classList.add('active');
-    }
-
-    function closePairLightModal() {
-      document.getElementById('pairLightModal').classList.remove('active');
-    }
-
-    async function sendPairLight() {
-      const btn = document.getElementById('sendPairLightBtn');
-      btn.textContent = 'Transmitting Light Bursts...';
-      btn.disabled = true;
-
-      try {
-        const res = await fetch('/api/pair-light', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repeats: 16 })
-        });
-        const result = await res.json();
-        closePairLightModal();
-        const toast = document.getElementById('toast');
-        if (result.success) {
-          toast.className = 'toast-msg success';
-          toast.textContent = 'Light pairing bursts sent! Release wall buttons once lights flash.';
-          await fetchStatus();
-        } else {
-          toast.className = 'toast-msg error';
-          toast.textContent = 'Pairing error: ' + (result.error || 'Failed');
-        }
-      } catch (err) {
-        alert('Pairing request failed: ' + err.message);
-      } finally {
-        btn.textContent = 'Send Light Pairing Signal';
-        btn.disabled = false;
-      }
-    }
-
     async function sendPair() {
       const btn = document.getElementById('sendPairBtn');
       btn.textContent = 'Transmitting...';
       btn.disabled = true;
-
       try {
         const res = await fetch('/api/pair', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repeats: 8 })
+          body: JSON.stringify({ repeats: 16 })
         });
-        const result = await res.json();
         closePairModal();
-        const toast = document.getElementById('toast');
-        if (result.success) {
-          toast.className = 'toast-msg success';
-          toast.textContent = 'Pairing bursts sent! Check for 2 flashes on opener.';
-          await fetchStatus();
-        } else {
-          toast.className = 'toast-msg error';
-          toast.textContent = 'Pairing error: ' + result.error;
-        }
+        await fetchStatus();
       } catch (err) {
         alert('Pairing request failed: ' + err.message);
       } finally {
@@ -877,68 +1512,77 @@
       }
     }
 
-    function openSyncModal() {
-      document.getElementById('syncInput').value = document.getElementById('rollingVal').textContent.trim();
-      document.getElementById('syncModal').classList.add('active');
+    // PAIR LIGHT MODAL
+    function openPairLightModal() {
+      document.getElementById('pairLightModal').classList.add('active');
+    }
+    function closePairLightModal() {
+      document.getElementById('pairLightModal').classList.remove('active');
+    }
+    async function sendPairLight() {
+      const btn = document.getElementById('sendPairLightBtn');
+      btn.textContent = 'Transmitting Light Bursts...';
+      btn.disabled = true;
+      try {
+        const res = await fetch('/api/pair-light', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repeats: 24 })
+        });
+        closePairLightModal();
+        await fetchStatus();
+      } catch (err) {
+        alert('Light pairing failed: ' + err.message);
+      } finally {
+        btn.textContent = 'Send Light Pairing Signal';
+        btn.disabled = false;
+      }
     }
 
+    // SYNC MODAL
+    function openSyncModal() {
+      document.getElementById('syncModal').classList.add('active');
+    }
     function closeSyncModal() {
       document.getElementById('syncModal').classList.remove('active');
     }
-
     async function submitSync() {
       const val = parseInt(document.getElementById('syncInput').value, 10);
-      if (isNaN(val)) {
-        alert('Please enter a valid integer');
+      if (isNaN(val) || val <= 0) {
+        alert("Enter a valid integer counter");
         return;
       }
-
       try {
-        const res = await fetch('/api/set-counter', {
+        await fetch('/api/set-counter', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ counter: val })
         });
-        const result = await res.json();
         closeSyncModal();
-        if (result.success) {
-          document.getElementById('toast').className = 'toast-msg success';
-          document.getElementById('toast').textContent = `Counter updated to ${val}`;
-          await fetchStatus();
-        }
+        await fetchStatus();
       } catch (err) {
-        alert('Error updating counter: ' + err.message);
+        alert("Sync failed: " + err.message);
       }
     }
 
+    // RESET REMOTE ID
     async function resetRemoteId() {
-      if (!confirm('Generate a brand new Button 0 Virtual Remote? You will need to press the Purple Learn button to pair it afterwards.')) return;
+      if (!confirm("Generate a new Fixed Remote ID? You will need to re-pair with the opener.")) return;
       try {
-        const res = await fetch('/api/reset-remote', {
+        await fetch('/api/reset-remote', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({})
+          body: JSON.stringify({ start_counter: 1000 })
         });
-        const result = await res.json();
-        if (result.success) {
-          const toast = document.getElementById('toast');
-          toast.className = 'toast-msg success';
-          toast.textContent = 'New Button 0 Remote created! Now pair with Purple button.';
-          await fetchStatus();
-          openPairModal();
-        } else {
-          alert('Error: ' + result.error);
-        }
+        await fetchStatus();
+        alert("Generated new Remote ID! Now pair it with your opener.");
       } catch (err) {
-        alert('Request failed: ' + err.message);
+        alert("Reset failed: " + err.message);
       }
     }
 
+    // TEST RF
     async function testRf() {
-      const toast = document.getElementById('toast');
-      toast.className = 'toast-msg';
-      toast.textContent = 'Transmitting 3.0s RF diagnostic bursts...';
-
       try {
         const res = await fetch('/api/test-rf', {
           method: 'POST',
@@ -946,20 +1590,16 @@
           body: JSON.stringify({ duration: 3.0 })
         });
         const result = await res.json();
-        if (result.success) {
-          toast.className = 'toast-msg success';
-          toast.textContent = result.message;
-          await fetchStatus();
-        }
+        alert(result.message || "Test completed!");
+        await fetchStatus();
       } catch (err) {
-        toast.className = 'toast-msg error';
-        toast.textContent = 'RF test failed: ' + err.message;
+        alert("Test failed: " + err.message);
       }
     }
 
-    // Initial load and periodic poll
+    // POLLING CYCLE: 1.5 seconds
     fetchStatus();
-    setInterval(fetchStatus, 4000);
+    setInterval(fetchStatus, 1500);
   </script>
 </body>
 </html>

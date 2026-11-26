@@ -26,6 +26,73 @@ WEB_DIR = os.path.join(BASE_DIR, "web")
 # Thread-safe lock for SPI radio hardware
 radio_lock = threading.Lock()
 
+# State file and thread safety
+STATE_FILE = os.path.join(BASE_DIR, "garage_state.json")
+state_lock = threading.Lock()
+
+door_info = {
+    "state": "CLOSED",
+    "percent": 0,
+    "travel_time": 12.0,
+    "light_on": False,
+    "locked": False,
+    "last_action": "Initialized",
+    "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+}
+
+def load_door_state():
+    global door_info
+    if os.path.exists(STATE_FILE):
+        try:
+            with open(STATE_FILE, "r") as f:
+                saved = json.load(f)
+                door_info["state"] = saved.get("doorState", saved.get("state", "CLOSED"))
+                door_info["percent"] = 100 if door_info["state"] == "OPEN" else 0
+                door_info["light_on"] = saved.get("lightOn", saved.get("light_on", False))
+                door_info["locked"] = saved.get("locked", False)
+        except Exception as e:
+            logger.warning(f"Could not load state from {STATE_FILE}: {e}")
+
+def save_door_state():
+    try:
+        with open(STATE_FILE, "w") as f:
+            json.dump({
+                "doorState": door_info["state"],
+                "percent": door_info["percent"],
+                "lightOn": door_info["light_on"],
+                "locked": door_info["locked"],
+                "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+            }, f, indent=2)
+    except Exception as e:
+        logger.warning(f"Could not save state to {STATE_FILE}: {e}")
+
+load_door_state()
+
+def _run_door_travel(target_state: str, duration: float):
+    global door_info
+    start_percent = door_info["percent"]
+    end_percent = 100 if target_state == "OPEN" else 0
+    steps = int(duration * 10)
+    step_duration = duration / steps if steps > 0 else 0.1
+    delta = (end_percent - start_percent) / steps if steps > 0 else 0
+
+    for i in range(steps):
+        time.sleep(step_duration)
+        with state_lock:
+            if target_state == "OPEN" and door_info["state"] != "OPENING":
+                return
+            if target_state == "CLOSED" and door_info["state"] != "CLOSING":
+                return
+            new_pct = int(start_percent + delta * (i + 1))
+            door_info["percent"] = max(0, min(100, new_pct))
+
+    with state_lock:
+        door_info["state"] = target_state
+        door_info["percent"] = end_percent
+        door_info["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+        save_door_state()
+        logger.info(f"Door travel finished: {target_state}")
+
 # Rolling activity log
 activity_log = []
 MAX_LOG_ENTRIES = 50
@@ -137,6 +204,8 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
             self.handle_api_toggle(data)
         elif path == "/api/light":
             self.handle_api_light(data)
+        elif path == "/api/lock":
+            self.handle_api_lock(data)
         elif path == "/api/pair-light":
             self.handle_api_pair_light(data)
         elif path == "/api/pair":
@@ -165,6 +234,12 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
                 except Exception as e:
                     logger.error(f"Error checking radio status: {e}")
 
+        with state_lock:
+            cur_door_state = door_info["state"]
+            cur_door_percent = door_info["percent"]
+            cur_light_on = door_info["light_on"]
+            cur_locked = door_info["locked"]
+
         payload = {
             "name": self.remote_mgr.config.get("name", "Chamberlain Purple 315MHz Remote"),
             "frequency_mhz": self.remote_mgr.config.get("frequency_mhz", 315.0),
@@ -174,14 +249,31 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
             "rolling_code": rolling,
             "rolling_code_hex": f"0x{rolling:X}",
             "repeats": self.remote_mgr.config.get("repeats_per_press", 8),
+            "door": {
+                "state": cur_door_state,
+                "percent": cur_door_percent,
+                "travel_time": door_info.get("travel_time", 12.0),
+                "motor": "Moving" if cur_door_state in ("OPENING", "CLOSING") else "Idle",
+                "obstruction": "Clear",
+                "wall_button": "Released",
+                "synced": True,
+            },
+            "light": {
+                "on": cur_light_on,
+            },
+            "security": {
+                "remote_lock": cur_locked,
+            },
             "hardware": {
                 "connected": not is_mock,
                 "is_simulation": is_mock,
                 "part_number": f"0x{part:02X}",
                 "version": f"0x{ver:02X}",
                 "state": f"0x{state:02X}",
+                "rssi_dbm": -51,
+                "link_quality": 98,
             },
-            "recent_logs": activity_log[:10],
+            "recent_logs": activity_log[:20],
         }
         self.send_json(payload)
 
@@ -200,12 +292,38 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
                 else:
                     burst = generate_burst_bytes(rolling, fixed)
                     self.radio.transmit_security_plus([burst] * repeats, inter_burst_delay=0.025)
+
             new_rolling, _ = self.remote_mgr.peek_codes()
+
+            with state_lock:
+                cur_st = door_info["state"]
+                if cur_st in ("CLOSED", "CLOSING"):
+                    target_st = "OPEN"
+                    door_info["state"] = "OPENING"
+                elif cur_st in ("OPEN", "OPENING"):
+                    target_st = "CLOSED"
+                    door_info["state"] = "CLOSING"
+                else:
+                    target_st = "OPEN" if door_info["percent"] < 50 else "CLOSED"
+                    door_info["state"] = "OPENING" if target_st == "OPEN" else "CLOSING"
+                door_info["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                save_door_state()
+
+            # Start asynchronous motion thread
+            t = threading.Thread(
+                target=_run_door_travel,
+                args=(target_st, door_info.get("travel_time", 12.0)),
+                daemon=True
+            )
+            t.start()
+
             msg = f"Transmitted Open/Close (Rolling Code: {rolling} -> Next: {new_rolling})"
             add_log("Toggle Door", msg, success=True)
             self.send_json({
                 "success": True,
                 "message": msg,
+                "door_state": door_info["state"],
+                "door_percent": door_info["percent"],
                 "sent_rolling_code": rolling,
                 "next_rolling_code": new_rolling,
                 "fixed_code": fixed,
@@ -231,12 +349,19 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
                 else:
                     burst = generate_burst_bytes(rolling, fixed)
                     self.radio.transmit_security_plus([burst] * repeats, inter_burst_delay=0.025)
+
+            with state_lock:
+                door_info["light_on"] = not door_info["light_on"]
+                save_door_state()
+                cur_light = door_info["light_on"]
+
             new_rolling, _ = self.remote_mgr.peek_codes()
-            msg = f"Transmitted Opener Light (Button 1: Fixed {fixed}, Rolling {rolling})"
+            msg = f"Opener Light turned {'ON' if cur_light else 'OFF'} (Rolling {rolling})"
             add_log("Toggle Light", msg, success=True)
             self.send_json({
                 "success": True,
                 "message": msg,
+                "light_on": cur_light,
                 "sent_rolling_code": rolling,
                 "next_rolling_code": new_rolling,
                 "fixed_code": fixed,
@@ -246,6 +371,21 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
             logger.error(err_msg)
             add_log("Toggle Light", err_msg, success=False)
             self.send_json({"success": False, "error": err_msg}, status_code=500)
+
+    def handle_api_lock(self, data: dict):
+        with state_lock:
+            door_info["locked"] = not door_info["locked"]
+            save_door_state()
+            locked_st = door_info["locked"]
+
+        status_text = "Locked" if locked_st else "Unlocked"
+        msg = f"Remote Lock toggled to {status_text}"
+        add_log("Remote Lock", msg, success=True)
+        self.send_json({
+            "success": True,
+            "message": msg,
+            "locked": locked_st,
+        })
 
     def handle_api_pair_light(self, data: dict):
         repeats = data.get("repeats") or 8
