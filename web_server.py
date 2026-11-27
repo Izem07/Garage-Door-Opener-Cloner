@@ -651,6 +651,7 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
             topic=mqtt_cfg.get("topic", "wyzesense2mqtt/#")
         )
 
+    ThreadingHTTPServer.allow_reuse_address = True
     server = ThreadingHTTPServer((host, port), GarageRequestHandler)
 
     local_ip = get_local_ip()
