@@ -72,6 +72,31 @@ class ChamberlainCC1101Accessory {
       .setCharacteristic(Characteristic.Manufacturer, "Chamberlain / TI CC1101")
       .setCharacteristic(Characteristic.Model, "Security+ 1.0 (315MHz)")
       .setCharacteristic(Characteristic.SerialNumber, "CC1101-PI-01");
+
+    // Watch garage_state.json for ground-truth updates (e.g. from Wyze contact sensor)
+    try {
+      if (fs.existsSync(this.stateFilePath)) {
+        fs.watchFile(this.stateFilePath, { interval: 1000 }, () => {
+          const oldState = this.currentDoorState;
+          this.loadState();
+          if (oldState !== this.currentDoorState) {
+            this.service
+              .getCharacteristic(Characteristic.CurrentDoorState)
+              .updateValue(this.currentDoorState);
+            this.service
+              .getCharacteristic(Characteristic.TargetDoorState)
+              .updateValue(this.targetDoorState);
+            this.log.info(
+              `[${this.name}] Wyze contact sensor updated door state to: ${
+                this.currentDoorState === Characteristic.CurrentDoorState.OPEN ? "OPEN" : "CLOSED"
+              }`
+            );
+          }
+        });
+      }
+    } catch (e) {
+      this.log.warn(`[${this.name}] File watch failed: ${e.message}`);
+    }
   }
 
   getServices() {

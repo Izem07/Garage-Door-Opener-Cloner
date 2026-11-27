@@ -68,6 +68,85 @@ def save_door_state():
 
 load_door_state()
 
+def parse_sensor_payload(data):
+    """
+    Parses various contact/door sensor payloads (Wyze, Zigbee2MQTT, Homebridge, etc.)
+    Returns True for OPEN, False for CLOSED, None if unrecognized.
+    """
+    if not isinstance(data, dict):
+        return None
+    if "state" in data:
+        s = str(data["state"]).strip().lower()
+        if s in ("open", "opened", "1", "true"):
+            return True
+        if s in ("closed", "close", "0", "false"):
+            return False
+    if "isOpen" in data:
+        return bool(data["isOpen"])
+    if "contact" in data:
+        c = data["contact"]
+        if isinstance(c, bool):
+            return not c  # contact True = magnet touching = door CLOSED
+        s = str(c).strip().lower()
+        if s in ("true", "1", "closed"):
+            return False
+        if s in ("false", "0", "open"):
+            return True
+    return None
+
+def start_mqtt_client(broker_host: str = "127.0.0.1", broker_port: int = 1883, topic: str = "wyzesense2mqtt/#"):
+    """
+    Subscribes to local Mosquitto MQTT broker for Wyze Sense v1 sensor events.
+    """
+    try:
+        import paho.mqtt.client as mqtt
+    except ImportError:
+        logger.info("[MQTT] paho-mqtt not installed. Optional: run 'sudo apt install -y python3-paho-mqtt' on Pi to enable direct MQTT sensor listener.")
+        return
+
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            logger.info(f"[MQTT] Connected to broker {broker_host}:{broker_port}. Subscribing to {topic}")
+            client.subscribe(topic)
+            client.subscribe("wyzesense/#")
+            client.subscribe("home/garage/#")
+        else:
+            logger.warning(f"[MQTT] Broker connection failed with result code {rc}")
+
+    def on_message(client, userdata, msg):
+        try:
+            payload_str = msg.payload.decode("utf-8")
+            try:
+                data = json.loads(payload_str)
+            except Exception:
+                data = {"state": payload_str}
+
+            is_open = parse_sensor_payload(data)
+            if is_open is not None:
+                with state_lock:
+                    door_info["state"] = "OPEN" if is_open else "CLOSED"
+                    door_info["percent"] = 100 if is_open else 0
+                    door_info["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    save_door_state()
+
+                st_str = "OPEN" if is_open else "CLOSED"
+                dev_id = data.get("mac", msg.topic.split("/")[-1])
+                msg_txt = f"Wyze Sensor ({dev_id}) ground-truth: {st_str}"
+                add_log("Sensor Update", msg_txt, success=True)
+                logger.info(f"[MQTT] {msg_txt}")
+        except Exception as e:
+            logger.error(f"[MQTT] Error processing message: {e}")
+
+    try:
+        client = mqtt.Client(client_id="gdo_wyze_listener")
+        client.on_connect = on_connect
+        client.on_message = on_message
+        client.connect_async(broker_host, broker_port, 60)
+        client.loop_start()
+        logger.info(f"[MQTT] Background listener started for {broker_host}:{broker_port}")
+    except Exception as e:
+        logger.warning(f"[MQTT] Could not connect to MQTT broker: {e}")
+
 def _run_door_travel(target_state: str, duration: float):
     global door_info
     start_percent = door_info["percent"]
@@ -202,6 +281,8 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
 
         if path in ("/api/toggle", "/api/open", "/api/close"):
             self.handle_api_toggle(data)
+        elif path in ("/api/sensor", "/api/state"):
+            self.handle_api_sensor(data)
         elif path == "/api/light":
             self.handle_api_light(data)
         elif path == "/api/lock":
@@ -333,6 +414,33 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
             logger.error(err_msg)
             add_log("Toggle Door", err_msg, success=False)
             self.send_json({"success": False, "error": err_msg}, status_code=500)
+
+    def handle_api_sensor(self, data: dict):
+        is_open = parse_sensor_payload(data)
+        if is_open is None:
+            self.send_json({
+                "success": False,
+                "error": "Unrecognized sensor payload. Provide {'state': 'open'|'closed'} or {'contact': true|false}"
+            }, status_code=400)
+            return
+
+        with state_lock:
+            door_info["state"] = "OPEN" if is_open else "CLOSED"
+            door_info["percent"] = 100 if is_open else 0
+            door_info["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+            save_door_state()
+
+        st_str = "OPEN" if is_open else "CLOSED"
+        dev_name = data.get("device", data.get("mac", "Wyze Contact Sensor"))
+        msg = f"Wyze sensor ({dev_name}) ground-truth: {st_str}"
+        add_log("Sensor Update", msg, success=True)
+        logger.info(f"[Sensor API] {msg}")
+        self.send_json({
+            "success": True,
+            "door_state": door_info["state"],
+            "door_percent": door_info["percent"],
+            "message": msg
+        })
 
     def handle_api_light(self, data: dict):
         repeats = data.get("repeats") or self.remote_mgr.config.get("repeats_per_press", 8)
@@ -513,6 +621,15 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
     GarageRequestHandler.radio = radio
     GarageRequestHandler.tx_mode = tx_mode
     GarageRequestHandler.gdo0_gpio = gdo0_gpio
+
+    # Optional MQTT subscriber for Wyze contact sensor
+    mqtt_cfg = remote_mgr.config.get("mqtt", {})
+    if mqtt_cfg.get("enabled", True):
+        start_mqtt_client(
+            broker_host=mqtt_cfg.get("broker", "127.0.0.1"),
+            broker_port=int(mqtt_cfg.get("port", 1883)),
+            topic=mqtt_cfg.get("topic", "wyzesense2mqtt/#")
+        )
 
     server = ThreadingHTTPServer((host, port), GarageRequestHandler)
 
