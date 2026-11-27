@@ -214,6 +214,17 @@ This means another copy of Halo is still running on port 8080 (for example one s
 * **Check the right version is running:** `curl -s localhost:8080/api/status | grep -o '"app_build"'` prints `"app_build"`.
 * **Service name:** older installs use `garage-door.service`; the README's setup creates `halo.service`. Use whichever `systemctl status` finds.
 
+### The app keeps switching between Live and Offline
+The status pill only shows **Reconnecting** after 1.5 s without the live link, and **Offline** after 6 s without any answer, so quick blips don't flash. To see what's happening, open **Device → System**:
+
+* **Halo Uptime keeps resetting / Halo Restarts rising:** Halo itself is restarting. Look for the reason with `journalctl -u garage-door.service -n 50 --no-pager` (or `halo.service`), and check that only one copy is running: `pgrep -af "garage_door|web_server"`.
+* **Uptime keeps growing but Connection Drops rise:** the network link is dropping. On a Raspberry Pi this is usually **Wi-Fi power saving**. Check with `iw wlan0 get power_save`. If it says *on*, turn it off:
+  ```bash
+  sudo iw wlan0 set power_save off
+  sudo nmcli connection modify "$(nmcli -t -f NAME connection show --active | head -1)" 802-11-wireless.powersave 2
+  ```
+  The first line takes effect now; the second keeps it off after reboots.
+
 ---
 
 ## Pairing

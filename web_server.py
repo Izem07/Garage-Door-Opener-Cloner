@@ -2203,6 +2203,7 @@ def build_status(remote_mgr: RemoteManager, radio: CC1101) -> dict:
         "app": APP_NAME,
         "timezone": tz_public(),
         "update": dict(UPDATE),
+        "server": {"pid": os.getpid(), "started_at": STARTED_AT, "uptime_s": int(time.monotonic() - _STARTED_MONO)},
         "app_build": _app_build(),
         "name": cfg.get("name", "Virtual Remote"),
         "frequency_mhz": cfg.get("frequency_mhz", 315.0),
@@ -2280,6 +2281,8 @@ def _code_signature():
 
 
 _START_SIG = _code_signature()
+STARTED_AT = time.time()           # identifies this run of Halo
+_STARTED_MONO = time.monotonic()   # uptime: immune to the clock jump at boot (Pi has no RTC)
 
 
 def _app_build():
@@ -2324,11 +2327,8 @@ def _code_watcher(server):
             logger.info("[Update] New code installed; restarting Halo")
             with state_lock:
                 save_door_state()
-            server.server_close()
-            try:
-                CTX["radio"].close()
-            except Exception:
-                pass
+            # Replace this process in place. Don't close the server first: that makes the
+            # main thread exit and race the restart. exec closes the listening socket itself.
             os.execv(sys.executable, [sys.executable] + sys.argv)
         finally:
             radio_lock.release()                        # only reached if execv failed

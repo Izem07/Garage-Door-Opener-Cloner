@@ -72,6 +72,7 @@ svg.i{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 .conn .dot{width:8px;height:8px;border-radius:50%;background:var(--green)}
 .conn.off .dot{background:var(--red)}
 .conn.sim .dot{background:var(--orange)}
+.conn.reconn .dot{background:var(--orange)}
 
 .large{padding:52px 4px 6px}
 .large h1{margin:0;font-size:34px;line-height:41px;font-weight:700;letter-spacing:.37px}
@@ -375,6 +376,14 @@ button.row:active,a.row:active{background:var(--fill)}
       <div class="row"><span class="lbl">Frequency</span><span class="val" id="dFreq">315 MHz</span></div>
       <div class="row"><span class="lbl">Bursts per Press</span><span class="val" id="dRepeats">8</span></div>
     </div>
+
+    <div class="group-h" id="systemSec">System</div>
+    <div class="list">
+      <div class="row"><span class="lbl">Halo Uptime<small>Time since Halo last started on the Pi</small></span><span class="val" id="sysUptime">—</span></div>
+      <div class="row"><span class="lbl">Halo Restarts<small>While this screen was open</small></span><span class="val" id="sysRestarts">0</span></div>
+      <div class="row"><span class="lbl">Connection Drops<small>Live link lost while Halo kept running</small></span><span class="val" id="sysDrops">0</span></div>
+    </div>
+    <div class="group-f" id="sysNote">If the uptime keeps resetting, Halo is restarting. If it stays up but drops keep rising, the Wi-Fi link is dropping (see README, Troubleshooting).</div>
 
     <div class="group-h" id="radioSec">Radio</div>
     <div class="list">
@@ -738,6 +747,7 @@ function fromServer(d) {
     else if (d.app_build !== APP_BUILD) return location.reload();
   }
   lastServer = d;
+  noteServer(d);
   render(overlay(d));
   const u = d.update || {};
   $("updateLine").hidden = !(u.restart_needed || u.error);
@@ -1183,7 +1193,7 @@ function render(d) {
 
   // Summary + connection
   put("summary", "text", `Door ${st.toLowerCase()} · ${lightOn ? "Light possibly on" : "Light off"}${car.state === "present" ? " · Car home" : car.state === "away" ? " · Car away" : ""}${locked ? " · Locked" : ""}`);
-  setConn(live ? (sim ? "sim" : "") : "off");
+  updateConn();
 
   // Logs (re-render only when changed)
   const logs = d.recent_logs || [];
@@ -1205,18 +1215,50 @@ setInterval(() => {
   tickAutoClose();
   if (S.pairing && S.pairing.active) renderPairing();
   if (S.timezone) put("tzNow", "text", nowText());
+  tickSystem();
   refreshTimes();
 }, 1000);
 
 // ── Live connection: SSE with polling fallback ───────
 let live = false, es = null, pollT = null;
+// Connection pill: a one-second reconnect never flashes "Offline". It shows
+// "Reconnecting" after 1.5 s without the live link, and "Offline" only when the
+// Pi hasn't answered at all for 6 s.
+let lastContact = 0, dropAt = 0, drops = 0, restarts = 0, serverStart = null, serverUptime = null, uptimeAt = 0;
 function setConn(mode) {
   put("conn", "class", "conn " + mode);
-  put("connText", "text", mode === "off" ? "Offline" : mode === "sim" ? "Simulation" : "Live");
+  put("connText", "text", { off: "Offline", sim: "Simulation", reconn: "Reconnecting", "": "Live" }[mode] ?? "Live");
+}
+function updateConn() {
+  const now = Date.now(), sim = !!(S && S.hardware && S.hardware.is_simulation);
+  if (live || now - dropAt < 1500) setConn(sim ? "sim" : "");
+  else if (now - lastContact < 6000) setConn("reconn");
+  else setConn("off");
+}
+function noteServer(d) {
+  lastContact = Date.now();
+  const srv = d.server;
+  if (!srv) return;
+  if (serverStart !== null && srv.started_at !== serverStart) {
+    restarts++;
+    if (drops > 0) drops--;              // that drop was the restart, not the network
+  }
+  serverStart = srv.started_at; serverUptime = srv.uptime_s; uptimeAt = Date.now();
+  put("sysRestarts", "text", String(restarts));
+  put("sysRestarts", "class", "val " + (restarts ? "warn" : ""));
+}
+function tickSystem() {
+  if (serverUptime === null) return;
+  const u = serverUptime + Math.round((Date.now() - uptimeAt) / 1000);
+  put("sysUptime", "text", u < 60 ? `${u} sec` : u < 3600 ? `${Math.floor(u / 60)} min` : u < 86400
+    ? `${Math.floor(u / 3600)} h ${Math.floor((u % 3600) / 60)} min` : `${Math.floor(u / 86400)} d ${Math.floor((u % 86400) / 3600)} h`);
+  put("sysDrops", "text", String(drops));
+  put("sysDrops", "class", "val " + (drops > 2 ? "warn" : ""));
+  updateConn();
 }
 async function poll() {
   try { const r = await fetch("/api/status", { cache: "no-store", signal: withTimeout(3000) }); if (r.ok) fromServer(await r.json()); }
-  catch { setConn("off"); }
+  catch { updateConn(); }
 }
 function connect() {
   if (es || document.hidden) return;
@@ -1224,7 +1266,8 @@ function connect() {
   es = new EventSource("/api/events");
   es.onmessage = e => { live = true; clearInterval(pollT); pollT = null; fromServer(JSON.parse(e.data)); };
   es.onerror = () => {
-    live = false; setConn("off");
+    if (live) { drops++; dropAt = lastContact = Date.now(); }   // the link was healthy until now
+    live = false; updateConn();
     if (!pollT) pollT = setInterval(poll, 2000);   // EventSource keeps retrying in the background
   };
 }
