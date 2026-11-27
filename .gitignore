@@ -63,3 +63,4 @@ halo_vapid.pem
 push_subscriptions.json
 halo.crt
 halo.key
+halo.lock

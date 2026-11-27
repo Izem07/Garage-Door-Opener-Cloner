@@ -295,6 +295,8 @@ button.row:active,a.row:active{background:var(--fill)}
   <main class="view active" id="view-home" data-title="Home">
     <div class="large"><h1>Halo</h1><p id="summary">Connecting…</p></div>
     <div class="ac-line" id="updateLine" hidden style="margin-top:10px"><span id="updateText"></span></div>
+    <div class="ac-line" id="dupLine" hidden style="margin-top:10px"><span id="dupText"></span></div>
+    <div class="ac-line" id="radioLine" hidden style="margin-top:10px;background:color-mix(in srgb,var(--red) 14%,transparent);color:var(--red)"><span id="radioText"></span></div>
 
     <section class="hero" id="hero">
       <div class="hero-top">
@@ -424,7 +426,9 @@ button.row:active,a.row:active{background:var(--fill)}
       <div id="dReadings"></div>
       <div class="row dmore" style="display:block;padding:10px 16px 6px"><span style="display:block">A Car Is Wider Than</span>
         <div class="seg" id="dWidthSeg"><button data-v="80">80 cm</button><button data-v="100">1 m</button><button data-v="130">1.3 m</button></div></div>
-      <button class="row dmore tint" onclick="calibrateDist()"><span class="lbl">Calibrate Empty Garage</span></button>
+      <div class="row dmore"><span class="lbl">Calibrated</span><span class="val" id="dCal">Not yet</span></div>
+      <button class="row dmore tint" onclick="calibrateDist('empty')"><span class="lbl">Calibrate: Garage Is Empty<small>Lets Halo measure height</small></span></button>
+      <button class="row dmore tint" onclick="calibrateDist('car')"><span class="lbl">Calibrate: Car Is Parked<small>No need to move the car. Doing both is most accurate</small></span></button>
     </div>
     <div class="group-f" id="distNote">A car is taller than 50 cm and wider than the setting above, so it sits under both sensors at once. A person is too narrow to cover both, so a tall person is never counted as a car.</div>
 
@@ -757,6 +761,15 @@ function fromServer(d) {
   lastServer = d;
   noteServer(d);
   render(overlay(d));
+  const dup = d.duplicates || {}, others = dup.others || [];
+  $("dupLine").hidden = !others.length;
+  if (others.length) {
+    const o = others[0];
+    const fix = /\.service$/.test(o.unit) ? `sudo systemctl disable --now ${o.unit}`
+      : /cron/.test(o.unit) ? "remove the Halo line from crontab -e" : `sudo kill ${o.pid}`;
+    put("dupText", "text", `Two copies of Halo are set to run: this one (${dup.self_unit || "unknown"}) and another started by ` +
+      `${o.unit}. The other is waiting and not doing anything. To keep just one: ${fix}`);
+  }
   const u = d.update || {};
   $("updateLine").hidden = !(u.restart_needed || u.error);
   put("updateText", "text", u.error ? u.error
@@ -825,9 +838,13 @@ const fmtLen = cm => { const i = cm / 2.54; return `${(cm / 100).toFixed(2)} m (
 const setDist = c => act(() => api("/api/distance/settings", c), null,
   Object.fromEntries(Object.entries(c).map(([k, v]) => ["distance." + k, v])));
 $("dWidthSeg").onclick = e => e.target.dataset.v && setDist({ min_width_cm: +e.target.dataset.v });
-const calibrateDist = () => confirmAction("Is the garage empty?",
-  "Move the car out and make sure nothing is under the sensors. Halo will remember this as the floor.",
-  "Calibrate Now", () => act(() => api("/api/distance/calibrate"), "Calibrated on the empty floor"), null, null, false);
+const calibrateDist = mode => mode === "car"
+  ? confirmAction("Is the car parked in its usual spot?",
+      "Park where you normally do, under both sensors, with nobody standing under them. Halo will remember this as 'car in the garage'.",
+      "Calibrate Now", () => act(() => api("/api/distance/calibrate", { mode: "car" }), "Calibrated with the car parked"), null, null, false)
+  : confirmAction("Is the garage empty?",
+      "Move the car out and make sure nothing is under the sensors. Halo will remember this as the floor.",
+      "Calibrate Now", () => act(() => api("/api/distance/calibrate", { mode: "empty" }), "Calibrated on the empty floor"), null, null, false);
 function carSheet() {
   const c = S && S.car ? S.car : { state: "unknown" };
   confirmAction("Where is the car?", c.reason || "Correct Halo if its estimate is wrong.",
@@ -1141,8 +1158,11 @@ function render(d) {
 
   // Radio
   const sim = hw.is_simulation;
-  put("dRadio", "text", sim ? "Simulation (no CC1101)" : "TI CC1101 · SPI0");
-  put("dRadio", "class", "val " + (sim ? "warn" : "ok"));
+  const radioBad = !sim && hw.verified === false;
+  put("dRadio", "text", sim ? "Simulation (no CC1101)" : radioBad ? "Not working" : hw.verified ? "TI CC1101 · verified" : "TI CC1101 · checking");
+  put("dRadio", "class", "val " + (sim ? "warn" : radioBad ? "bad" : "ok"));
+  $("radioLine").hidden = !radioBad;
+  put("radioText", "text", radioBad ? `Radio problem: ${hw.problem || "the CC1101 isn't answering"}. The door can't be controlled until it's fixed (Device, Radio, Check Radio Now).` : "");
   const rc = hw.check || {};
   put("dChip", "text", sim ? "—" : `Part ${hw.part_number}, version ${hw.version}${hw.version === "0x14" ? " (genuine)" : ""}`);
   put("dMarc", "text", sim ? "—" : `${hw.state_name || hw.state}`);
@@ -1177,7 +1197,11 @@ function render(d) {
   const objTxt = ds.status !== "ok" ? ({ "needs calibration": "Calibrate first", "no data": "No readings", off: "Off" }[ds.status] || ds.status || "—")
     : !ds.height_cm ? "Empty floor" : ds.present ? "Car" : "Too narrow for a car";
   put("dObject", "text", objTxt);
-  put("dSize", "text", ds.status === "ok" && ds.height_cm
+  const cal = ds.calibrated || {};
+  put("dCal", "text", cal.empty && cal.car ? "Empty floor and parked car" : cal.empty ? "Empty floor" : cal.car ? "Parked car" : "Not yet");
+  put("dSize", "text", ds.status === "ok" && ds.present && ds.height_cm == null
+    ? `Matches the parked car${ds.width_measurable ? `, ${m(ds.width_cm)} wide` : ""}`
+    : ds.status === "ok" && ds.height_cm
     ? (ds.width_measurable ? `${m(ds.height_cm)} tall × ${m(ds.width_cm)} wide (${ft(ds.height_cm)} × ${ft(ds.width_cm)})`
                            : `${m(ds.height_cm)} tall (${ft(ds.height_cm)}), width unknown`)
     : ds.status === "ok" ? "Nothing taller than 50 cm" : "Ceiling sensors pointing down at the parking spot");

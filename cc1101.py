@@ -30,6 +30,10 @@ from typing import List
 
 logger = logging.getLogger(__name__)
 
+
+class RadioError(Exception):
+    """The CC1101 didn't do what was asked (not answering, or a transmission didn't go out)."""
+
 # ---------------------------------------------------------------------------
 # CC1101 Configuration Registers
 # ---------------------------------------------------------------------------
@@ -115,6 +119,8 @@ class CC1101:
         self.speed_hz = speed_hz
         self.spi = None
         self.is_mock = False
+        self.verified = None          # True once the chip has proven it answers; None = not checked
+        self.problem = None           # plain-English reason when it isn't working
 
     # ------------------------------------------------------------------
     # SPI Primitives
@@ -157,8 +163,15 @@ class CC1101:
         return self._xfer(cmd)[1:]
 
     def read_status(self, reg: int) -> int:
-        resp = self._xfer([(reg & 0x3F) | READ_BURST, 0x00])
-        return resp[1]
+        """Status registers can read wrong while they're changing (CC1101 errata, SPI read
+        synchronization): read until two consecutive reads agree."""
+        last = self._xfer([(reg & 0x3F) | READ_BURST, 0x00])[1]
+        for _ in range(5):
+            now = self._xfer([(reg & 0x3F) | READ_BURST, 0x00])[1]
+            if now == last:
+                return now
+            last = now
+        return last
 
     def strobe(self, cmd: int) -> int:
         resp = self._xfer([cmd & 0x3F])
@@ -249,6 +262,38 @@ class CC1101:
         self.write_burst(PATABLE, [0x00, 0xC0])
         self.strobe(STROBE_SFTX)
         time.sleep(0.001)
+        self.verify(config)
+
+    def verify(self, config: dict = None) -> bool:
+        """Prove the chip is really there: right identity, and the settings we wrote read back
+        the same. That only works if power, ground, all four SPI wires and the chip are good.
+        Sets self.verified / self.problem and returns verified."""
+        if self.is_mock:
+            self.verified, self.problem = False, "No SPI device: running in simulation"
+            return False
+        part, ver = self.get_partnum(), self.get_version()
+        if ver in (0x00, 0xFF) and part in (0x00, 0xFF):
+            self.verified = False
+            self.problem = (f"CC1101 not answering (reads 0x{ver:02X}). Check 3.3 V, GND and the SPI wires "
+                            f"(MISO, MOSI, SCK, CSN)")
+        elif ver not in (0x04, 0x14):
+            self.verified = False
+            self.problem = f"Unexpected chip (part 0x{part:02X}, version 0x{ver:02X}): is this a CC1101?"
+        else:
+            bad = []
+            for reg, want in (config or {}).items():
+                got = self.read_reg(reg)
+                if got != want:
+                    bad.append(f"0x{reg:02X}: wrote 0x{want:02X}, read 0x{got:02X}")
+            if bad:
+                self.verified = False
+                self.problem = ("CC1101 answers but its settings didn't stick (" + "; ".join(bad[:3]) +
+                                "). Usually a loose MOSI or SCK wire, or an unstable 3.3 V supply")
+            else:
+                self.verified, self.problem = True, None
+        if not self.verified:
+            logger.error(f"[CC1101] {self.problem}")
+        return bool(self.verified)
 
     def transmit_burst(self, burst_bytes: bytes):
         """
@@ -267,6 +312,11 @@ class CC1101:
         self.strobe(STROBE_SFTX)
 
         self.write_burst(FIFO, list(burst_bytes))
+        queued = self.read_status(STATUS_TXBYTES) & 0x7F
+        if queued != len(burst_bytes):
+            self.strobe(STROBE_SFTX)
+            raise RadioError(f"The CC1101 didn't take the data ({queued} of {len(burst_bytes)} bytes). "
+                             f"Check the MOSI/MISO/SCK/CSN wiring and the 3.3 V supply")
 
         self.strobe(STROBE_STX)
 
@@ -275,13 +325,24 @@ class CC1101:
         time.sleep(tx_duration_sec + 0.020)
 
         # Poll for IDLE (state 0x01) up to 300 ms
+        state = None
         deadline = time.time() + 0.3
         while time.time() < deadline:
-            if self.get_state() == 0x01:
+            state = self.get_state()
+            if state == 0x01:
                 break
             time.sleep(0.005)
 
+        left = self.read_status(STATUS_TXBYTES)
         self.strobe(STROBE_SIDLE)
+        if left & 0x80 or state == 0x16:
+            self.strobe(STROBE_SFTX)
+            raise RadioError("The CC1101 ran out of data while sending (TX underflow)")
+        if left & 0x7F:
+            self.strobe(STROBE_SFTX)
+            raise RadioError(f"The CC1101 didn't send the burst ({left & 0x7F} of {len(burst_bytes)} bytes "
+                             f"still waiting, radio state 0x{(state or 0):02X}). It may be stuck: try "
+                             f"restarting Halo, and check the 3.3 V supply")
 
     def transmit_security_plus(self, bursts: List[bytes], inter_burst_delay: float = 0.025):
         """Transmit multiple repeated bursts of Security+ frames (FIFO mode)."""
@@ -347,6 +408,7 @@ class CC1101:
             self.write_reg(reg, val)
 
         self.write_burst(PATABLE, [0x00, 0xC0])
+        self.verify(config)
 
     def transmit_async_bits(self, burst_bits: List[int], gdo0_gpio: int = 24,
                             bit_duration_us: int = 500):

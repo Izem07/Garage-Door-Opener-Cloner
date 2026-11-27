@@ -121,6 +121,8 @@ You can run the same check from the app at any time: **Device → Radio → Chec
 
 Halo also runs this check every time it starts.
 
+**"Connected" means verified.** At startup Halo reads back the settings it wrote to the chip; that only matches if power, ground, all four SPI wires and the chip are good. Every press then checks the chip really took the 50-byte burst and sent all of it. If anything fails, the app shows **Radio problem** with the reason, and the door isn't shown as moving when nothing was sent.
+
 ---
 
 ## The Halo App
@@ -202,6 +204,23 @@ Open apps reconnect within a second and load the new page by themselves.
 
 To turn self-restart off, set `"auto_restart_on_update": false` in `remote_config.json`.
 
+### Two copies of Halo / Halo keeps restarting
+If **Device > System** shows **Halo Restarts** climbing and an uptime of a few seconds, two things on the Pi are starting Halo, for example both `garage-door.service` and `halo.service`, or a service plus a cron job or a startup script. Older versions then fought over the port, the GPIO pins and the radio: each start reset the CC1101 and took the pins, which showed up as "GPIO busy" and a radio that seemed connected but didn't work.
+
+**Halo now allows only one copy.** The first holds a lock (`halo.lock`). Any other copy **waits** without touching the radio, pins or port, and only takes over if the first one stops. The Home screen then shows a banner naming both and the command to remove the extra one. To check and fix it yourself:
+```bash
+pgrep -af "garage_door|web_server"
+systemctl list-units --all --type=service | grep -iE "halo|garage"
+crontab -l; sudo crontab -l
+```
+Keep one service and remove the rest, e.g. `sudo systemctl disable --now halo.service`, or delete the Halo line from `crontab -e`.
+
+### "GPIO busy" for the distance sensors
+The error message names who holds the pins:
+* **Halo itself from before it restarted:** fixed with one `sudo systemctl restart garage-door.service`. Halo also releases leftover pin handles when it starts, and a self-update no longer carries any over.
+* **Another copy of Halo:** see *Two copies of Halo* above.
+* **Another program:** check with `gpioinfo | grep -E "line +(17|22|23|27):"`.
+
 ### "Address already in use" / the app still shows old behaviour
 This means another copy of Halo is still running on port 8080 (for example one started by hand with `python3 garage_door.py web`), so the app keeps talking to old code and the new one can't start.
 
@@ -270,6 +289,9 @@ A motion sensor sees **movement and warm bodies**, not a parked car, so it can't
 
 It's an estimate, so you can tap **Car** in the app to correct it at any time. For the estimate to work:
 * **Mount it at the back of the bay**, about 2 m up on the back wall or the wall beside the car, **facing the driver's door and the path to the house door**.
+* **Under the opener on the ceiling works too.** Mount it a little **behind** the opener (on the house side), tilt it down, and **face it away from the garage door, toward the back wall and the house door**. Two things to avoid:
+  * **Facing the garage door:** the panels roll back along the ceiling rails right past the opener when the door opens, and sunlight, heat and passing cars come in through the open door. It would trigger on every door movement.
+  * **Right next to the opener's light:** the sensor sees heat, and a bulb switching on beside it can set it off.
 * **Don't let it see the garage door.** Moving door panels, sunlight and street heat through the open door all cause false triggers.
 * Keep it away from heater vents, the water heater and the opener motor.
 * If you usually take more than 2 minutes to get in and leave, raise `car_detection.before_open_sec`.
@@ -300,7 +322,13 @@ A motion sensor can't measure anything. It only notices movement and body heat. 
 2. Keep them **behind where the open garage door rests** on its rails. The open door would otherwise sit right under them.
 3. Point them straight down, with nothing else (shelves, a bike lift) in the beam.
 
-**Setup in the app:** **Device → Car Height & Width Sensors** → turn on **Use Distance Sensors**. Move the car out, tap **Calibrate Empty Garage**, then park. You'll see e.g. *Under the Sensors: Car, 1.45 m tall × 1.83 m wide*. If your car is unusually narrow or the sensors are closer together, change **A Car Is Wider Than** (80 cm / 1 m / 1.3 m).
+**Setup in the app:** **Device → Car Height & Width Sensors** → turn on **Use Distance Sensors**, then calibrate one or both ways:
+
+* **Calibrate: Car Is Parked**: park where you normally do, with nobody under the sensors, and tap it. **No need to move the car.** Halo learns what "car under the sensors" looks like and counts a car when the readings come back to that.
+* **Calibrate: Garage Is Empty**: with the car out, tap it. This also lets Halo show the object's **height**.
+* **Both** is the most accurate: Halo then puts the car/no-car line exactly halfway between your floor and your car. Halo refuses a "car parked" calibration if the sensors see about the same as the empty floor.
+
+Then park. You'll see e.g. *Under the Sensors: Car, 1.45 m tall × 1.83 m wide*. If your car is unusually narrow or the sensors are closer together, change **A Car Is Wider Than** (80 cm / 1 m / 1.3 m).
 
 **With only one sensor,** Halo can measure height but not width. The app warns you, and a tall person standing still under it for 20 s could look like a car.
 

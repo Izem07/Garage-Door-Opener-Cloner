@@ -37,7 +37,7 @@ from collections import deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 
-from cc1101 import CC1101
+from cc1101 import CC1101, RadioError
 from security_plus import generate_burst_bytes, generate_burst_bits
 from remote_manager import RemoteManager
 
@@ -503,8 +503,26 @@ def ingest_distance(sensor_id: str, distance_cm=None, zones=None):
     return _evaluate_distance()
 
 
+CAR_MATCH_MARGIN_CM = 35.0    # with only a parked-car calibration: this much farther still counts as the car
+
+
+def _is_tall(d: float, floor, car):
+    """Is something car-tall under the sensor at distance d?  Returns (tall, height_or_None).
+      both calibrations: tall when closer than halfway between the floor and the parked car
+      empty floor only : tall when the object is taller than min_height
+      parked car only  : tall when about as close as the car was (or closer)"""
+    if floor and car:
+        return d <= (floor + car) / 2.0, max(0.0, floor - d)
+    if floor:
+        h = max(0.0, floor - d)
+        return h >= DIST["min_height_cm"], h
+    if car:
+        return d <= car + CAR_MATCH_MARGIN_CM, None
+    return None, None
+
+
 def _tall_points():
-    """Points (x, y, footprint radius, height) where something taller than min_height is.
+    """Points (x, y, footprint radius, height or None) where something car-tall is.
     Returns (points, sensors_ok, width_measurable, readings, grid_coverage)."""
     now = time.time()
     pts, readings, ok, multi, coverage = [], {}, 0, False, 0.0
@@ -515,8 +533,11 @@ def _tall_points():
             readings[cfg["id"]] = {"status": "no data"}
             continue
         if cfg.get("driver") == "grid" or st.get("zones"):
-            z, floors = st.get("zones"), cfg.get("floor_zones")
-            if not z or not floors or len(floors) != len(z):
+            z = st.get("zones")
+            floors, cars = cfg.get("floor_zones"), cfg.get("car_zones")
+            floors = floors if floors and z and len(floors) == len(z) else None
+            cars = cars if cars and z and len(cars) == len(z) else None
+            if not z or not (floors or cars):
                 readings[cfg["id"]] = {"status": "needs calibration"}
                 continue
             n = int(round(math.sqrt(len(z))))
@@ -525,8 +546,8 @@ def _tall_points():
             for i, d in enumerate(z):
                 if d < MIN_VALID_CM:
                     continue
-                h = floors[i] - d
-                if h >= DIST["min_height_cm"]:
+                is_tall, h = _is_tall(d, floors[i] if floors else None, cars[i] if cars else None)
+                if is_tall:
                     r, c = divmod(i, n)
                     ax, ay = ((c + 0.5) / n - 0.5) * fov, ((r + 0.5) / n - 0.5) * fov
                     pts.append((cfg["x_cm"] + d * math.tan(ax), cfg["y_cm"] + d * math.tan(ay),
@@ -540,16 +561,16 @@ def _tall_points():
         if st.get("problem"):
             readings[cfg["id"]] = {"status": st["problem"]}
             continue
-        if not cfg.get("floor_cm"):
-            readings[cfg["id"]] = {"status": "needs calibration", "distance_cm": round(st["median"], 1)}
-            continue
         d = st["median"]
-        h = max(0.0, cfg["floor_cm"] - d)
-        tall = h >= DIST["min_height_cm"]
-        if tall:
+        is_tall, h = _is_tall(d, cfg.get("floor_cm"), cfg.get("car_cm"))
+        if is_tall is None:
+            readings[cfg["id"]] = {"status": "needs calibration", "distance_cm": round(d, 1)}
+            continue
+        if is_tall:
             pts.append((cfg["x_cm"], cfg["y_cm"], d * beam, h))
         ok += 1
-        readings[cfg["id"]] = {"status": "ok", "distance_cm": round(d, 1), "height_cm": round(h, 1), "tall": tall}
+        readings[cfg["id"]] = {"status": "ok", "distance_cm": round(d, 1), "tall": is_tall,
+                               "height_cm": None if h is None else round(h, 1)}
     point_sensors = sum(1 for r in readings.values() if r.get("status") == "ok" and "tall" in r)
     return pts, ok, multi or point_sensors >= 2, readings, coverage
 
@@ -574,7 +595,8 @@ def _evaluate_distance():
                              else "no data", present=None, height_cm=None, width_cm=None)
             notify_change()
             return None
-        height = max((p[3] for p in pts), default=0.0)
+        heights = [p[3] for p in pts if p[3] is not None]
+        height = max(heights) if heights else (None if pts else 0.0)
         width = _object_width(pts) if pts else 0.0
         if not pts:
             present = False
@@ -586,7 +608,8 @@ def _evaluate_distance():
             present = True                               # one sensor: height only (app warns)
         if present != DIST_INFO["present"]:
             DIST_INFO["since"] = now                     # candidate; must hold steady
-        DIST_INFO.update(status="ok", present=present, height_cm=round(height, 1) if pts else 0.0,
+        DIST_INFO.update(status="ok", present=present,
+                         height_cm=(None if height is None else round(height, 1)) if pts else 0.0,
                          width_cm=round(width, 1) if pts else 0.0)
         commit = now - DIST_INFO["since"] >= DIST["stable_seconds"] and present != DIST_INFO["committed"]
         if commit:
@@ -594,7 +617,8 @@ def _evaluate_distance():
     if commit:
         if present:
             set_car("present", "distance",
-                    f"Object {_fmt_len(height)} tall and {_fmt_len(width)} wide under the sensors")
+                    f"Object {_fmt_len(height)} tall and {_fmt_len(width)} wide under the sensors" if height
+                    else f"Matches the parked car ({_fmt_len(width)} wide) under the sensors")
         elif pts:
             set_car("away", "distance", f"Only a narrow object ({_fmt_len(width)} wide), probably a person")
         else:
@@ -609,8 +633,12 @@ def _fmt_len(cm: float) -> str:
     return f"{cm / 100:.2f} m ({int(inches // 12)} ft {int(round(inches % 12))} in)"
 
 
-def calibrate_distance():
-    """Remember the current readings as the empty floor (garage must be empty)."""
+def calibrate_distance(mode: str = "empty"):
+    """mode 'empty': remember the current readings as the empty floor.
+    mode 'car'  : remember them as the parked car (no need to move it)."""
+    if mode not in ("empty", "car"):
+        raise RuntimeError("Calibration must be 'empty' or 'car'")
+    point_key, grid_key = ("floor_cm", "floor_zones") if mode == "empty" else ("car_cm", "car_zones")
     done = []
     with _dist_lock:
         for cfg in DIST["sensors"]:
@@ -618,16 +646,24 @@ def calibrate_distance():
             if not st or time.time() - st["at"] > STALE_SEC:
                 continue
             if st.get("zones"):
-                cfg["floor_zones"] = [round(v, 1) for v in st["zones"]]
+                cfg[grid_key] = [round(v, 1) for v in st["zones"]]
                 done.append(cfg["id"])
             elif st.get("median"):
-                cfg["floor_cm"] = round(st["median"], 1)
+                cfg[point_key] = round(st["median"], 1)
                 done.append(cfg["id"])
+            if mode == "car" and cfg.get("floor_cm") and cfg.get("car_cm") \
+                    and cfg["floor_cm"] - cfg["car_cm"] < 20:
+                cfg.pop("car_cm", None)
+                raise RuntimeError(f"Sensor '{cfg['id']}' sees almost the same distance as the empty floor. "
+                                   "Is the car really under it?")
         DIST_INFO.update(present=None, since=time.time(), committed=None)
     if not done:
         raise RuntimeError("No distance readings yet. Check the sensors are connected.")
     save_distance_settings()
-    add_log("Car", f"Distance sensors calibrated on the empty floor ({', '.join(done)})", True)
+    what = "the empty floor" if mode == "empty" else "the parked car"
+    add_log("Car", f"Distance sensors calibrated on {what} ({', '.join(done)})", True)
+    if mode == "car":
+        set_car("present", "distance", "Calibrated with the car parked")
     return done
 
 
@@ -644,6 +680,86 @@ def _open_hcsr04(cfg):
     from gpiozero import DistanceSensor
     return DistanceSensor(echo=int(cfg["echo_pin"]), trigger=int(cfg["trigger_pin"]),
                           max_distance=DIST["max_cm"] / 100.0, queue_len=1)
+
+
+def gpio_holders(proc: str = "/proc"):
+    """Processes holding GPIO line requests: {pid: {"cmd", "fds", "lines"}} plus whether some
+    processes couldn't be inspected (e.g. started with sudo). Lines come from the kernel's
+    fdinfo (Linux 6.7+); on older kernels they're unknown (empty set)."""
+    holders, hidden = {}, False
+    try:
+        pids = [d for d in os.listdir(proc) if d.isdigit()]
+    except OSError:
+        return holders, hidden
+    for pid in pids:
+        fd_dir = os.path.join(proc, pid, "fd")
+        try:
+            fds = os.listdir(fd_dir)
+        except PermissionError:
+            hidden = True
+            continue
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                link = os.readlink(os.path.join(fd_dir, fd))
+            except OSError:
+                continue
+            if "gpio" not in link or not link.startswith("anon_inode:"):
+                continue
+            entry = holders.get(int(pid))
+            if entry is None:
+                try:
+                    with open(os.path.join(proc, pid, "cmdline"), "rb") as f:
+                        cmd = f.read().replace(bytes([0]), b" ").decode(errors="replace").strip()
+                except OSError:
+                    cmd = "?"
+                entry = holders[int(pid)] = {"cmd": cmd, "fds": [], "lines": set()}
+            entry["fds"].append(int(fd))
+            try:
+                with open(os.path.join(proc, pid, "fdinfo", fd)) as f:
+                    for row in f:
+                        if row.startswith("gpio-line:"):
+                            entry["lines"].add(int(row.split(":", 1)[1].strip()))
+            except (OSError, ValueError):
+                pass
+    return holders, hidden
+
+
+def release_leftover_gpio():
+    """GPIO handles this process holds before it has opened any sensor can only be leftovers
+    from before a self-restart. Close them so the pins are free again."""
+    holders, _ = gpio_holders()
+    mine = holders.get(os.getpid())
+    if not mine:
+        return 0
+    for fd in mine["fds"]:
+        try:
+            os.close(fd)
+        except OSError:
+            pass
+    logger.warning(f"[GPIO] Released {len(mine['fds'])} GPIO handle(s) left over from before Halo restarted")
+    return len(mine["fds"])
+
+
+def describe_gpio_holder(pins) -> str:
+    """Plain-English 'who has these pins' for the 'GPIO busy' message."""
+    holders, hidden = gpio_holders()
+    pins = set(pins)
+    me = os.getpid()
+    for pid, h in holders.items():
+        if h["lines"] and not (h["lines"] & pins):
+            continue                                    # holds other pins
+        if pid == me:
+            return ("they're still held by Halo itself from before it restarted. Restart Halo once: "
+                    "sudo systemctl restart garage-door.service")
+        if HALO_CMD_RE.search(h["cmd"] or ""):
+            return f"another copy of Halo (PID {pid}) has them. Stop it with: sudo kill {pid}"
+        return f"another program has them: PID {pid} ({(h['cmd'] or '?')[:80]})"
+    if hidden:
+        return ("a program Halo isn't allowed to inspect has them (probably started with sudo). "
+                "Find it with: sudo gpioinfo | grep -E 'line +(17|22|23|27):'")
+    return "another program has them (find it with: gpioinfo | grep -E 'line +(17|22|23|27):')"
 
 
 def _pin_conflicts():
@@ -682,8 +798,8 @@ def _distance_reader(stop: threading.Event):
                     except Exception as e:
                         why = str(e)
                         if "busy" in why.lower():
-                            why = ("those pins are already in use by another program or another copy of Halo "
-                                   "(check: pgrep -af garage_door)")
+                            why = "those pins are in use: " + describe_gpio_holder(
+                                (cfg.get("trigger_pin"), cfg.get("echo_pin")))
                         failed[cfg["id"]] = (f"Can't open sensor '{cfg['id']}' on GPIO {cfg.get('trigger_pin')}/"
                                              f"{cfg.get('echo_pin')}: {why}. Retrying every {DIST_OPEN_RETRY_SEC} s.")
                 next_try = time.monotonic() + DIST_OPEN_RETRY_SEC
@@ -733,6 +849,8 @@ def stop_distance_reader(timeout: float = 3.0):
 def distance_public() -> dict:
     return {**{k: DIST[k] for k in ("enabled", "min_height_cm", "min_width_cm", "stable_seconds")},
             "sensor_count": len(DIST["sensors"]),
+            "calibrated": {"empty": any(x.get("floor_cm") or x.get("floor_zones") for x in DIST["sensors"]),
+                           "car": any(x.get("car_cm") or x.get("car_zones") for x in DIST["sensors"])},
             **{k: DIST_INFO.get(k) for k in ("status", "present", "height_cm", "width_cm", "width_measurable",
                                              "readings", "error", "updated_at")}}
 
@@ -1231,12 +1349,22 @@ def transmit(rolling: int, fixed: int, repeats: int, delay: float = 0.025):
     """Send one Security+ 1.0 press (N bursts) in the configured TX mode."""
     radio = CTX["radio"]
     with radio_lock:
+        if not radio.is_mock and radio.verified is False:
+            radio.verify()                              # maybe it was just fixed (wiring, power)
+            if not radio.verified:
+                notify_change()
+                raise RadioError(radio.problem or "The CC1101 isn't working")
         if CTX["tx_mode"] == "async":
             bits = generate_burst_bits(rolling, fixed)
             radio.transmit_security_plus_async([bits] * repeats, gdo0_gpio=CTX["gdo0"], inter_burst_delay=delay)
         else:
             burst = generate_burst_bytes(rolling, fixed)
-            radio.transmit_security_plus([burst] * repeats, inter_burst_delay=delay)
+            try:
+                radio.transmit_security_plus([burst] * repeats, inter_burst_delay=delay)
+            except RadioError as e:
+                radio.verified, radio.problem = False, str(e)
+                notify_change()
+                raise
         refresh_hw_state(radio)
 
 
@@ -2147,7 +2275,7 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
 
     def handle_distance_calibrate(self, data: dict):
         try:
-            done = calibrate_distance()
+            done = calibrate_distance(str(data.get("mode") or "empty"))
         except RuntimeError as e:
             return self.send_json({"success": False, "error": str(e)}, 409)
         self.send_json({"success": True, "calibrated": done})
@@ -2403,6 +2531,11 @@ def check_radio() -> dict:
                    "detail": state_name + ("" if state in (0x01, 0x0D, 0x13, 0x14, 0x12) else
                                            ". Unusual: try restarting Halo")})
     ok = all(c["ok"] for c in checks)
+    if ok:
+        radio.verified, radio.problem = True, None
+    else:
+        radio.verified = False
+        radio.problem = next(c["name"] + ": " + c["detail"] for c in checks if not c["ok"])
     RADIO_CHECK.update(checked_at=_now_iso(), ok=ok, checks=checks, state_name=state_name,
                        frequency_mhz=round(freq, 3),
                        summary="CC1101 is healthy" if ok else next(c["name"] + ": " + c["detail"] for c in checks if not c["ok"]))
@@ -2422,6 +2555,7 @@ def build_status(remote_mgr: RemoteManager, radio: CC1101) -> dict:
         "app": APP_NAME,
         "timezone": tz_public(),
         "update": dict(UPDATE),
+        "duplicates": {"others": list(DUPLICATES["others"]), "self_unit": DUPLICATES["self_unit"]},
         "https": dict(HTTPS_INFO),
         "server": {"pid": os.getpid(), "started_at": STARTED_AT, "uptime_s": int(time.monotonic() - _STARTED_MONO)},
         "app_build": _app_build(),
@@ -2452,7 +2586,9 @@ def build_status(remote_mgr: RemoteManager, radio: CC1101) -> dict:
         "motion": dict(d["motion"]),
         "security": {"remote_lock": d["locked"]},
         "hardware": {
-            "connected": not radio.is_mock,
+            "connected": (not radio.is_mock) and radio.verified is not False,
+            "verified": radio.verified,
+            "problem": radio.problem,
             "is_simulation": radio.is_mock,
             **hw_info,
             "state_name": MARC_STATES.get(int(hw_info["state"], 16), "Unknown"),
@@ -2548,8 +2684,14 @@ def _code_watcher(server):
             with state_lock:
                 save_door_state()
             stop_distance_reader()                       # hand the GPIO pins back first
-            # Replace this process in place. Don't close the server first: that makes the
-            # main thread exit and race the restart. exec closes the listening socket itself.
+            try:
+                CTX["radio"].close()                     # and the SPI bus
+            except Exception:
+                pass
+            # Close every other handle (GPIO lines, sockets, files) so nothing carries over
+            # into the new version. Don't close the server first: that makes the main thread
+            # exit and race the restart.
+            os.closerange(3, 65536)
             os.execv(sys.executable, [sys.executable] + sys.argv)
         finally:
             radio_lock.release()                        # only reached if execv failed
@@ -2629,6 +2771,90 @@ def _stop_old_halo(pid: int, cmd: str, port: int) -> bool:
         return False
 
 
+# ── One Halo at a time ─────────────────────────────────────────────────────────
+# Two copies of Halo (e.g. two services, or a service plus a cron job) would fight:
+# each resets the CC1101, grabs the GPIO pins and the port. So the first copy holds
+# a lock file; any other copy waits quietly WITHOUT touching the radio, pins or port,
+# and only takes over if the first one stops. The app shows a banner naming both.
+LOCK_FILE = os.path.join(BASE_DIR, "halo.lock")
+_instance = {"lock": None}
+DUPLICATES = {"others": [], "self_unit": None}
+
+
+def unit_of(pid) -> str:
+    """What started a process: its systemd service, cron, or a terminal."""
+    try:
+        with open(f"/proc/{pid}/cgroup") as f:
+            path = f.read()
+    except OSError:
+        return "unknown"
+    for part in reversed(path.replace("/", " ").split()):
+        if part.endswith(".service"):
+            return "cron (crontab)" if part == "cron.service" else part
+        if part.startswith("session-") and part.endswith(".scope"):
+            return "a terminal or login session (started by hand)"
+    return "unknown"
+
+
+def other_halos(proc: str = "/proc"):
+    """Other running Halo processes: [(pid, command, what started it)]."""
+    me, out = os.getpid(), []
+    try:
+        pids = [int(d) for d in os.listdir(proc) if d.isdigit()]
+    except OSError:
+        return out
+    for pid in pids:
+        if pid == me:
+            continue
+        try:
+            with open(os.path.join(proc, str(pid), "cmdline"), "rb") as f:
+                cmd = f.read().replace(bytes([0]), b" ").decode(errors="replace").strip()
+        except OSError:
+            continue
+        if HALO_CMD_RE.search(cmd):
+            out.append((pid, cmd, unit_of(pid)))
+    return out
+
+
+def acquire_single_instance():
+    """Take the Halo lock, or wait (idle) until the copy holding it stops."""
+    if os.name != "posix":
+        return
+    import fcntl
+    f = open(LOCK_FILE, "a+")
+    try:
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        f.seek(0)
+        holder = f.read().strip()
+        who = f"PID {holder}, started by {unit_of(holder)}" if holder.isdigit() else "another process"
+        msg = (f"Another copy of Halo is already running ({who}). This copy ({unit_of(os.getpid())}) will "
+               f"wait without touching the radio, pins or port, and take over only if that one stops. "
+               f"Only one thing should start Halo: see README, 'Two copies of Halo'.")
+        logger.warning(msg)
+        print(msg, file=sys.stderr, flush=True)
+        fcntl.flock(f.fileno(), fcntl.LOCK_EX)          # wait here
+        logger.info("The other copy of Halo stopped; this copy is taking over")
+    f.seek(0)
+    f.truncate()
+    f.write(str(os.getpid()))
+    f.flush()
+    _instance["lock"] = f
+    DUPLICATES["self_unit"] = unit_of(os.getpid())
+
+
+def _duplicate_watch():
+    """Keep the app's 'two copies' banner current."""
+    while True:
+        others = [{"pid": p, "unit": u} for p, _, u in other_halos()]
+        if others != DUPLICATES["others"]:
+            DUPLICATES["others"] = others
+            if others:
+                logger.warning(f"[Halo] Another copy of Halo is waiting: {others}")
+            notify_change()
+        time.sleep(30)
+
+
 def _bind_http(host: str, port: int):
     for attempt in range(3):
         try:
@@ -2638,6 +2864,8 @@ def _bind_http(host: str, port: int):
             if not in_use or attempt == 2:
                 raise
             owners = _port_owners(port)
+            # We hold the Halo lock, so any Halo still on the port is an older version
+            # that doesn't know about the lock: safe to stop it.
             halos = [(p, c) for p, c in owners if p and c and HALO_CMD_RE.search(c)]
             if owners and len(halos) == len(owners):
                 if all(_stop_old_halo(p, c, port) for p, c in halos):
@@ -2741,6 +2969,7 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
                spi_bus: int = 0, spi_device: int = 0,
                tx_mode: str = "fifo", gdo0_gpio: int = 24):
     os.makedirs(WEB_DIR, exist_ok=True)
+    acquire_single_instance()                           # before touching radio, pins or port
     load_door_state()
 
     remote_mgr = RemoteManager(config_path) if config_path else RemoteManager()
@@ -2769,6 +2998,8 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
     AUTO_CLOSE.update({k: v for k, v in (remote_mgr.config.get("auto_close") or {}).items() if k in AUTO_CLOSE})
     threading.Thread(target=_bridge_watchdog, daemon=True).start()
     DIST.update({k: v for k, v in (remote_mgr.config.get("distance_sensor") or {}).items() if k in DIST})
+    if os.name == "posix":
+        release_leftover_gpio()                         # e.g. from an older self-restart
     if DIST["enabled"]:
         start_distance_reader()
     threading.Thread(target=_auto_close_worker, daemon=True).start()
@@ -2829,6 +3060,8 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
     add_log("Halo", f"Server started on port {port}", success=True)
 
     UPDATE["auto_restart"] = bool(remote_mgr.config.get("auto_restart_on_update", True))
+    if os.name == "posix":
+        threading.Thread(target=_duplicate_watch, daemon=True).start()
     HTTPS.update({k: v for k, v in (remote_mgr.config.get("https") or {}).items() if k in HTTPS})
     start_https(HaloRequestHandler)
     threading.Thread(target=_code_watcher, args=(server,), daemon=True).start()
