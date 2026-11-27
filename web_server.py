@@ -36,10 +36,34 @@ door_info = {
     "percent": 0,
     "travel_time": 12.0,
     "light_on": False,
+    "light_timer_expires": 0,
     "locked": False,
+    "sensor": {
+        "mac": "77CB8338",
+        "state": "closed",
+        "battery": 98,
+        "signal_strength": -32,
+        "last_seen": "Startup",
+        "connected": True,
+    },
     "last_action": "Initialized",
     "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
 }
+
+def _background_light_timer():
+    """Background checker for Chamberlain 4.5m courtesy light auto-off."""
+    while True:
+        time.sleep(2)
+        with state_lock:
+            expires = door_info.get("light_timer_expires", 0)
+            if expires > 0 and time.time() >= expires and door_info.get("light_on", False):
+                door_info["light_on"] = False
+                door_info["light_timer_expires"] = 0
+                save_door_state()
+                add_log("Opener Light", "Courtesy light auto-off after 4.5m timer", success=True)
+                logger.info("[Light] Auto-off timer elapsed, light turned off")
+
+threading.Thread(target=_background_light_timer, daemon=True).start()
 
 def load_door_state():
     global door_info
@@ -138,17 +162,35 @@ def start_mqtt_client(broker_host: str = "127.0.0.1", broker_port: int = 1883, t
                 except Exception:
                     data = {"state": payload_str}
 
+            dev_id = data.get("mac", msg.topic.split("/")[-1])
+            battery = data.get("battery")
+            sig = data.get("signal_strength")
+
             is_open = parse_sensor_payload(data)
             if is_open is not None:
                 with state_lock:
                     door_info["state"] = "OPEN" if is_open else "CLOSED"
                     door_info["percent"] = 100 if is_open else 0
                     door_info["updated_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ")
+                    if "sensor" not in door_info:
+                        door_info["sensor"] = {}
+                    door_info["sensor"]["mac"] = dev_id
+                    door_info["sensor"]["state"] = "open" if is_open else "closed"
+                    if battery is not None:
+                        door_info["sensor"]["battery"] = battery
+                    if sig is not None:
+                        door_info["sensor"]["signal_strength"] = sig
+                    door_info["sensor"]["last_seen"] = time.strftime("%H:%M:%S")
+                    door_info["sensor"]["connected"] = True
+
+                    # Real Chamberlain openers turn light ON whenever the door operates
+                    if not door_info.get("light_on", False):
+                        door_info["light_on"] = True
+                        door_info["light_timer_expires"] = time.time() + 270
                     save_door_state()
 
                 st_str = "OPEN" if is_open else "CLOSED"
-                dev_id = data.get("mac", msg.topic.split("/")[-1])
-                msg_txt = f"Wyze Ground-Truth Sensor ({dev_id}) reported: {st_str}"
+                msg_txt = f"Wyze Ground-Truth Sensor ({dev_id}) reported: {st_str} (RSSI: {sig} dBm, Batt: {battery}%)"
                 add_log("Sensor Update", msg_txt, success=True)
                 logger.info(f"[MQTT] {msg_txt}")
         except Exception as e:
@@ -169,6 +211,14 @@ def start_mqtt_client(broker_host: str = "127.0.0.1", broker_port: int = 1883, t
 
 def _run_door_travel(target_state: str, duration: float):
     global door_info
+    with state_lock:
+        # Chamberlain openers illuminate courtesy light during door operation
+        if not door_info.get("light_on", False):
+            door_info["light_on"] = True
+            door_info["light_timer_expires"] = time.time() + 270
+            save_door_state()
+            add_log("Opener Light", "Courtesy light illuminated by door movement (4.5m timer)", success=True)
+
     start_percent = door_info["percent"]
     end_percent = 100 if target_state == "OPEN" else 0
     steps = int(duration * 10)
@@ -305,6 +355,8 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
             self.handle_api_sensor(data)
         elif path == "/api/light":
             self.handle_api_light(data)
+        elif path == "/api/light/state":
+            self.handle_api_light_state(data)
         elif path == "/api/lock":
             self.handle_api_lock(data)
         elif path == "/api/pair-light":
@@ -339,7 +391,10 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
             cur_door_state = door_info["state"]
             cur_door_percent = door_info["percent"]
             cur_light_on = door_info["light_on"]
+            cur_expires = door_info.get("light_timer_expires", 0)
+            remaining_sec = max(0, int(cur_expires - time.time())) if cur_light_on and cur_expires > 0 else 0
             cur_locked = door_info["locked"]
+            sensor_data = dict(door_info.get("sensor", {}))
 
         payload = {
             "name": self.remote_mgr.config.get("name", "Chamberlain Purple 315MHz Remote"),
@@ -361,7 +416,9 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
             },
             "light": {
                 "on": cur_light_on,
+                "auto_off_remaining_sec": remaining_sec,
             },
+            "sensor": sensor_data,
             "security": {
                 "remote_lock": cur_locked,
             },
@@ -480,6 +537,10 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
 
             with state_lock:
                 door_info["light_on"] = not door_info["light_on"]
+                if door_info["light_on"]:
+                    door_info["light_timer_expires"] = time.time() + 270 # 4.5 minutes auto-off
+                else:
+                    door_info["light_timer_expires"] = 0
                 save_door_state()
                 cur_light = door_info["light_on"]
 
@@ -490,6 +551,7 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
                 "success": True,
                 "message": msg,
                 "light_on": cur_light,
+                "auto_off_remaining_sec": 270 if cur_light else 0,
                 "sent_rolling_code": rolling,
                 "next_rolling_code": new_rolling,
                 "fixed_code": fixed,
@@ -499,6 +561,19 @@ class GarageRequestHandler(BaseHTTPRequestHandler):
             logger.error(err_msg)
             add_log("Toggle Light", err_msg, success=False)
             self.send_json({"success": False, "error": err_msg}, status_code=500)
+
+    def handle_api_light_state(self, data: dict):
+        new_on = bool(data.get("on", False))
+        with state_lock:
+            door_info["light_on"] = new_on
+            if new_on:
+                door_info["light_timer_expires"] = time.time() + 270
+            else:
+                door_info["light_timer_expires"] = 0
+            save_door_state()
+        msg = f"Opener Light state updated to {'ON' if new_on else 'OFF'} by sensor/integration"
+        add_log("Light Sensor", msg, success=True)
+        self.send_json({"success": True, "light_on": new_on, "message": msg})
 
     def handle_api_lock(self, data: dict):
         with state_lock:

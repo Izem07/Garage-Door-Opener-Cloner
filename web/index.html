@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>GDO • Chamberlain 315MHz</title>
+  <title>GDO Pro • Chamberlain Security+ 1.0</title>
   
   <!-- Apple Touch & PWA icons -->
   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
@@ -12,46 +12,48 @@
   <link rel="manifest" href="/manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="GDO">
-  <meta name="theme-color" content="#09101d">
+  <meta name="apple-mobile-web-app-title" content="Garage">
+  <meta name="theme-color" content="#070c18">
 
   <style>
     :root {
-      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      --transition-speed: 0.25s;
+      --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      --transition-speed: 0.3s;
     }
 
-    /* Dark Mode (Default - inspired by Konnected GDO blaQ) */
+    /* Dark Mode (High-contrast obsidian/navy) */
     html[data-theme="dark"] {
-      --bg: #09101d;
-      --card-bg: #101c33;
-      --card-inner: #15223c;
-      --card-border: rgba(255, 255, 255, 0.08);
-      --card-hover: #162645;
+      --bg: #070c18;
+      --card-bg: rgba(16, 26, 48, 0.75);
+      --card-inner: rgba(22, 36, 66, 0.65);
+      --card-border: rgba(255, 255, 255, 0.09);
+      --card-hover: rgba(26, 42, 78, 0.85);
       --text-main: #f8fafc;
-      --text-muted: #8e9bb0;
+      --text-muted: #94a3b8;
       --accent-blue: #3b82f6;
       --accent-blue-hover: #2563eb;
       --accent-cyan: #38bdf8;
-      --accent-glow: rgba(59, 130, 246, 0.35);
+      --accent-glow: rgba(59, 130, 246, 0.4);
       --success: #10b981;
       --warning: #f59e0b;
       --danger: #ef4444;
-      --toggle-off: #334155;
+      --toggle-off: #27354f;
       --toggle-thumb: #ffffff;
-      --slat-bg: #223250;
-      --slat-highlight: #e0f2fe;
-      --slat-glow: rgba(224, 242, 254, 0.6);
-      --track-bg: #1e293b;
+      --slat-bg-start: #2a3a58;
+      --slat-bg-end: #1a2740;
+      --slat-highlight: #38bdf8;
+      --slat-glow: rgba(56, 189, 248, 0.65);
+      --track-bg: #141f36;
+      --light-glow: rgba(250, 204, 21, 0.35);
     }
 
     /* Light Mode */
     html[data-theme="light"] {
-      --bg: #f1f5f9;
-      --card-bg: #ffffff;
-      --card-inner: #f8fafc;
+      --bg: #f8fafc;
+      --card-bg: rgba(255, 255, 255, 0.9);
+      --card-inner: #f1f5f9;
       --card-border: #e2e8f0;
-      --card-hover: #f1f5f9;
+      --card-hover: #ffffff;
       --text-main: #0f172a;
       --text-muted: #64748b;
       --accent-blue: #2563eb;
@@ -63,10 +65,12 @@
       --danger: #dc2626;
       --toggle-off: #cbd5e1;
       --toggle-thumb: #ffffff;
-      --slat-bg: #cbd5e1;
-      --slat-highlight: #38bdf8;
-      --slat-glow: rgba(56, 189, 248, 0.4);
+      --slat-bg-start: #cbd5e1;
+      --slat-bg-end: #94a3b8;
+      --slat-highlight: #0284c7;
+      --slat-glow: rgba(2, 132, 199, 0.4);
       --track-bg: #e2e8f0;
+      --light-glow: rgba(234, 179, 8, 0.3);
     }
 
     * {
@@ -79,23 +83,25 @@
 
     body {
       background-color: var(--bg);
+      background-image: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.08), transparent 60%);
+      background-attachment: fixed;
       color: var(--text-main);
       min-height: 100vh;
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 20px 16px 80px 16px;
-      padding-top: max(20px, env(safe-area-inset-top));
-      padding-bottom: max(80px, env(safe-area-inset-bottom));
+      padding: 16px 14px 70px 14px;
+      padding-top: max(16px, env(safe-area-inset-top));
+      padding-bottom: max(70px, env(safe-area-inset-bottom));
       transition: background-color var(--transition-speed) ease, color var(--transition-speed) ease;
     }
 
     .container {
       width: 100%;
-      max-width: 980px;
+      max-width: 960px;
       display: flex;
       flex-direction: column;
-      gap: 16px;
+      gap: 14px;
     }
 
     /* TOP HEADER */
@@ -103,24 +109,24 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 8px 4px;
+      padding: 6px 4px;
     }
 
     .brand-left {
       display: flex;
       align-items: center;
-      gap: 14px;
+      gap: 12px;
     }
 
     .brand-icon {
       width: 44px;
       height: 44px;
       border-radius: 14px;
-      background: radial-gradient(circle at 30% 30%, #3b82f6, #1e3a8a);
+      background: radial-gradient(circle at 30% 30%, #3b82f6, #1d4ed8);
       display: flex;
       align-items: center;
       justify-content: center;
-      box-shadow: 0 4px 14px var(--accent-glow);
+      box-shadow: 0 4px 16px var(--accent-glow);
       color: #fff;
     }
 
@@ -134,12 +140,26 @@
       font-weight: 800;
       letter-spacing: -0.02em;
       line-height: 1.1;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-badge-pro {
+      font-size: 0.65rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 2px 6px;
+      border-radius: 6px;
+      background: var(--accent-blue);
+      color: #fff;
+      letter-spacing: 0.05em;
     }
 
     .brand-sub {
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       color: var(--text-muted);
-      margin-top: 3px;
+      margin-top: 2px;
       display: flex;
       align-items: center;
       gap: 6px;
@@ -148,77 +168,112 @@
     .header-actions {
       display: flex;
       align-items: center;
-      gap: 10px;
+      gap: 8px;
     }
 
-    .online-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 0.78rem;
-      font-weight: 600;
-      background: rgba(16, 185, 129, 0.12);
-      color: var(--success);
-      border: 1px solid rgba(16, 185, 129, 0.25);
-    }
-
-    .online-dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background-color: var(--success);
-      box-shadow: 0 0 8px var(--success);
-    }
-
-    /* THEME TOGGLE */
-    .theme-toggle-btn {
-      width: 40px;
-      height: 40px;
+    .header-btn {
+      width: 38px;
+      height: 38px;
       border-radius: 12px;
       background: var(--card-bg);
+      backdrop-filter: blur(12px);
       border: 1px solid var(--card-border);
       color: var(--text-main);
       display: flex;
       align-items: center;
       justify-content: center;
       cursor: pointer;
-      transition: all var(--transition-speed) ease;
+      transition: all 0.2s ease;
     }
 
-    .theme-toggle-btn:hover {
+    .header-btn:hover {
       background: var(--card-hover);
       transform: translateY(-1px);
+    }
+
+    /* SENSOR STATUS PILL BAR */
+    .sensor-banner {
+      background: var(--card-bg);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 10px 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 0.8rem;
+    }
+
+    .sensor-info-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .sensor-pulse-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--success);
+      box-shadow: 0 0 10px var(--success);
+      animation: pulse 2.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.3); opacity: 0.7; }
+    }
+
+    .sensor-telemetry-tags {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .sensor-tag {
+      background: var(--card-inner);
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border: 1px solid var(--card-border);
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
     }
 
     /* MAIN HERO CARD */
     .hero-card {
       background: var(--card-bg);
+      backdrop-filter: blur(20px);
       border: 1px solid var(--card-border);
-      border-radius: 22px;
-      padding: 32px 28px;
+      border-radius: 24px;
+      padding: 28px 24px;
       display: grid;
       grid-template-columns: 1fr 1.1fr;
-      gap: 36px;
+      gap: 32px;
       align-items: center;
-      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
-      transition: all var(--transition-speed) ease;
+      box-shadow: 0 16px 36px rgba(0, 0, 0, 0.25);
       position: relative;
       overflow: hidden;
+      transition: all var(--transition-speed) ease;
     }
 
-    /* ARCHITECTURAL GARAGE SVG */
+    /* GARAGE GRAPHIC VECTOR */
     .garage-art-col {
       display: flex;
+      flex-direction: column;
       align-items: center;
       justify-content: center;
       width: 100%;
+      position: relative;
     }
 
     .garage-svg-wrap {
       width: 100%;
-      max-width: 340px;
+      max-width: 320px;
       aspect-ratio: 1.25;
       display: flex;
       align-items: center;
@@ -231,27 +286,37 @@
       overflow: visible;
     }
 
+    /* VOLUMETRIC COURTESY LIGHT BEAM */
+    #garageLightBeam {
+      transition: opacity 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+      pointer-events: none;
+    }
+
+    #ceilingBulb {
+      transition: fill 0.4s ease, filter 0.4s ease;
+    }
+
     .slat {
-      transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.4s ease;
+      transition: transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .slat-glow-bar {
-      filter: drop-shadow(0 0 6px var(--slat-glow));
+      transition: fill 0.3s ease, filter 0.3s ease;
     }
 
     /* HERO CONTROLS */
     .hero-ctrl-col {
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 18px;
       justify-content: center;
     }
 
     .door-header-label {
-      font-size: 0.8rem;
-      font-weight: 700;
+      font-size: 0.75rem;
+      font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.08em;
+      letter-spacing: 0.1em;
       color: var(--text-muted);
     }
 
@@ -259,11 +324,11 @@
       display: flex;
       align-items: baseline;
       gap: 12px;
-      margin-top: -8px;
+      margin-top: -6px;
     }
 
     .door-state-text {
-      font-size: 2.8rem;
+      font-size: 2.75rem;
       font-weight: 800;
       letter-spacing: -0.03em;
       line-height: 1;
@@ -276,29 +341,35 @@
     }
 
     /* BIG PRIMARY ACTION BUTTON */
+    .door-action-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
     .btn-door-action {
       background: var(--accent-blue);
       color: #ffffff;
       border: none;
-      padding: 14px 28px;
+      padding: 14px 30px;
       border-radius: 14px;
       font-size: 1.15rem;
       font-weight: 700;
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      gap: 12px;
+      gap: 10px;
       cursor: pointer;
-      width: fit-content;
       min-width: 170px;
-      box-shadow: 0 4px 18px var(--accent-glow);
+      box-shadow: 0 6px 20px var(--accent-glow);
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .btn-door-action:hover {
       background: var(--accent-blue-hover);
       transform: translateY(-2px);
-      box-shadow: 0 6px 22px var(--accent-glow);
+      box-shadow: 0 8px 24px var(--accent-glow);
     }
 
     .btn-door-action:active {
@@ -306,8 +377,33 @@
     }
 
     .btn-door-action.busy {
-      opacity: 0.75;
+      opacity: 0.8;
       pointer-events: none;
+    }
+
+    /* PRESET VENT / CLOSE PILLS */
+    .preset-pill-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .btn-preset-pill {
+      background: var(--card-inner);
+      border: 1px solid var(--card-border);
+      color: var(--text-main);
+      padding: 8px 14px;
+      border-radius: 10px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .btn-preset-pill:hover {
+      background: var(--card-hover);
+      border-color: var(--accent-blue);
+      transform: translateY(-1px);
     }
 
     /* POSITION SLIDER */
@@ -321,7 +417,7 @@
     .slider-labels {
       display: flex;
       justify-content: space-between;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 600;
       color: var(--text-muted);
     }
@@ -337,7 +433,7 @@
 
     .range-fill {
       height: 100%;
-      background: var(--accent-blue);
+      background: linear-gradient(90deg, var(--accent-blue), var(--accent-cyan));
       width: 0%;
       border-radius: 6px;
       transition: width 0.3s ease;
@@ -346,33 +442,34 @@
     .slider-sub-labels {
       display: flex;
       justify-content: space-between;
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       color: var(--text-muted);
     }
 
-    /* TOGGLE CARDS ROW */
+    /* TOGGLE CARDS ROW (Light & Remote Lock) */
     .toggle-cards-row {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 16px;
+      gap: 14px;
     }
 
     .toggle-card {
       background: var(--card-bg);
+      backdrop-filter: blur(16px);
       border: 1px solid var(--card-border);
-      border-radius: 18px;
+      border-radius: 20px;
       padding: 20px 22px;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-      transition: background-color var(--transition-speed) ease;
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.08);
+      transition: all var(--transition-speed) ease;
     }
 
     .card-info-left {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 14px;
     }
 
     .card-icon-badge {
@@ -385,12 +482,14 @@
       justify-content: center;
       color: var(--accent-cyan);
       border: 1px solid var(--card-border);
+      transition: all 0.3s ease;
     }
 
     .card-icon-badge.light-on {
-      background: rgba(234, 179, 8, 0.18);
-      color: #eab308;
-      border-color: rgba(234, 179, 8, 0.3);
+      background: rgba(250, 204, 21, 0.18);
+      color: #facc15;
+      border-color: rgba(250, 204, 21, 0.4);
+      box-shadow: 0 0 18px var(--light-glow);
     }
 
     .card-titles {
@@ -404,9 +503,22 @@
     }
 
     .card-subtitle {
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       color: var(--text-muted);
       margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .light-timer-badge {
+      background: rgba(250, 204, 21, 0.18);
+      color: #facc15;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 0.72rem;
+      letter-spacing: 0.02em;
     }
 
     /* SLEEK IOS TOGGLE SWITCH */
@@ -446,11 +558,15 @@
       background-color: var(--toggle-thumb);
       transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       border-radius: 50%;
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
     }
 
     input:checked + .slider {
       background-color: var(--accent-blue);
+    }
+
+    #lightToggleSwitch:checked + .slider {
+      background-color: #f59e0b;
     }
 
     input:checked + .slider:before {
@@ -461,19 +577,20 @@
     .telemetry-row {
       display: grid;
       grid-template-columns: repeat(5, 1fr);
-      gap: 12px;
+      gap: 10px;
     }
 
     .telemetry-card {
       background: var(--card-bg);
+      backdrop-filter: blur(14px);
       border: 1px solid var(--card-border);
       border-radius: 16px;
-      padding: 14px 16px;
+      padding: 12px 14px;
       display: flex;
       align-items: center;
-      gap: 12px;
+      gap: 10px;
       box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
-      transition: background-color var(--transition-speed) ease;
+      transition: all var(--transition-speed) ease;
     }
 
     .telemetry-icon {
@@ -491,7 +608,7 @@
     }
 
     .telemetry-label {
-      font-size: 0.68rem;
+      font-size: 0.65rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
@@ -500,7 +617,7 @@
     }
 
     .telemetry-value {
-      font-size: 0.95rem;
+      font-size: 0.92rem;
       font-weight: 700;
       white-space: nowrap;
     }
@@ -512,6 +629,7 @@
     /* COLLAPSIBLE STRIP CARDS */
     .strip-card {
       background: var(--card-bg);
+      backdrop-filter: blur(16px);
       border: 1px solid var(--card-border);
       border-radius: 16px;
       padding: 16px 20px;
@@ -538,7 +656,7 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.06em;
@@ -549,7 +667,7 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       font-weight: 600;
     }
 
@@ -557,7 +675,7 @@
       background: var(--card-inner);
       padding: 4px 10px;
       border-radius: 8px;
-      font-size: 0.78rem;
+      font-size: 0.75rem;
       color: var(--text-muted);
       border: 1px solid var(--card-border);
     }
@@ -585,7 +703,7 @@
     .hw-grid {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 12px;
+      gap: 10px;
     }
 
     .hw-item {
@@ -596,14 +714,14 @@
     }
 
     .hw-label {
-      font-size: 0.7rem;
+      font-size: 0.68rem;
       color: var(--text-muted);
       text-transform: uppercase;
       font-weight: 600;
     }
 
     .hw-val {
-      font-size: 0.95rem;
+      font-size: 0.92rem;
       font-weight: 700;
       margin-top: 2px;
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -622,7 +740,7 @@
       color: var(--text-main);
       padding: 12px 14px;
       border-radius: 12px;
-      font-size: 0.85rem;
+      font-size: 0.82rem;
       font-weight: 600;
       cursor: pointer;
       display: flex;
@@ -640,9 +758,10 @@
     /* LIVE LOGS BAR */
     .logs-bar {
       background: var(--card-bg);
+      backdrop-filter: blur(16px);
       border: 1px solid var(--card-border);
       border-radius: 16px;
-      padding: 14px 18px;
+      padding: 12px 18px;
       display: flex;
       flex-direction: column;
       gap: 10px;
@@ -662,7 +781,7 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       font-weight: 800;
       text-transform: uppercase;
       letter-spacing: 0.08em;
@@ -671,7 +790,7 @@
     }
 
     .logs-latest-msg {
-      font-size: 0.82rem;
+      font-size: 0.8rem;
       color: var(--text-muted);
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
       white-space: nowrap;
@@ -682,7 +801,7 @@
 
     .logs-drawer {
       display: none;
-      max-height: 200px;
+      max-height: 220px;
       overflow-y: auto;
       background: var(--card-inner);
       border: 1px solid var(--card-border);
@@ -698,7 +817,7 @@
 
     .log-line {
       padding: 4px 6px;
-      border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
       display: flex;
       gap: 8px;
     }
@@ -709,13 +828,13 @@
 
     /* FOOTER */
     footer {
-      text-align: center;
-      font-size: 0.78rem;
-      color: var(--text-muted);
-      margin-top: 14px;
       display: flex;
       justify-content: center;
-      gap: 12px;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      font-size: 0.75rem;
+      color: var(--text-muted);
     }
 
     /* MODAL DIALOGS */
@@ -726,7 +845,7 @@
       right: 0;
       bottom: 0;
       background: rgba(0, 0, 0, 0.75);
-      backdrop-filter: blur(6px);
+      backdrop-filter: blur(8px);
       display: none;
       align-items: center;
       justify-content: center;
@@ -792,7 +911,6 @@
     .btn-cancel {
       background: var(--card-inner);
       color: var(--text-main);
-      border: 1px solid var(--card-border);
     }
 
     .btn-confirm {
@@ -802,97 +920,75 @@
 
     .input-field {
       width: 100%;
+      padding: 12px;
+      border-radius: 10px;
       background: var(--card-inner);
       border: 1px solid var(--card-border);
       color: var(--text-main);
-      padding: 10px 14px;
-      border-radius: 10px;
       font-size: 1rem;
       outline: none;
     }
 
-    /* RESPONSIVE DESIGN FOR IPHONE / MOBILE */
+    /* RESPONSIVE */
     @media (max-width: 768px) {
-      body {
-        padding: 12px 12px 90px 12px;
-      }
-
       .hero-card {
         grid-template-columns: 1fr;
-        gap: 24px;
+        gap: 20px;
         padding: 24px 18px;
-        text-align: center;
       }
-
-      .hero-ctrl-col {
-        align-items: center;
-      }
-
-      .door-title-row {
-        justify-content: center;
-      }
-
-      .btn-door-action {
-        width: 100%;
-        max-width: 320px;
-      }
-
-      .position-slider-box {
-        width: 100%;
-      }
-
       .toggle-cards-row {
         grid-template-columns: 1fr;
-        gap: 12px;
       }
-
       .telemetry-row {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: repeat(3, 1fr);
       }
+    }
 
-      .telemetry-card:last-child {
-        grid-column: span 2;
-      }
-
-      .brand-name {
-        font-size: 1.2rem;
+    @media (max-width: 480px) {
+      .telemetry-row {
+        grid-template-columns: 1fr 1fr;
       }
     }
   </style>
 </head>
 <body>
-  <div class="container">
 
-    <!-- HEADER BAR -->
+  <div class="container">
+    
+    <!-- TOP HEADER -->
     <header>
       <div class="brand-left">
         <div class="brand-icon">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="4" y="4" width="16" height="16" rx="2"/>
-            <rect x="9" y="9" width="6" height="6"/>
-            <path d="M9 1v3m6-3v3m-6 17v3m6-3v3M1 9h3m-3 6h3m17-6h3m-3 6h3"/>
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
           </svg>
         </div>
         <div class="brand-titles">
-          <div class="brand-name">GDO</div>
-          <div class="brand-sub">Chamberlain Security+ 1.0 • 315MHz</div>
+          <div class="brand-name">
+            <span>Chamberlain GDO</span>
+            <span class="brand-badge-pro">Security+ 1.0</span>
+          </div>
+          <div class="brand-sub">
+            <span>Raspberry Pi 3B+</span>
+            <span>•</span>
+            <span>315.00 MHz</span>
+          </div>
         </div>
       </div>
 
       <div class="header-actions">
-        <div class="online-badge">
-          <div class="online-dot"></div>
-          <span>Online</span>
-        </div>
+        <!-- Sound effects toggle -->
+        <button id="soundToggleBtn" class="header-btn" title="Toggle Sound Feedback" onclick="toggleSound()">
+          <span id="soundIcon">🔊</span>
+        </button>
 
         <!-- Dark / Light Mode Switch Button -->
-        <button id="themeToggleBtn" class="theme-toggle-btn" aria-label="Toggle Theme" onclick="toggleTheme()">
-          <!-- Moon Icon (for dark mode) -->
-          <svg id="moonIcon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button id="themeToggleBtn" class="header-btn" aria-label="Toggle Theme" onclick="toggleTheme()">
+          <svg id="moonIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
           </svg>
-          <!-- Sun Icon (for light mode) -->
-          <svg id="sunIcon" style="display: none;" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg id="sunIcon" style="display: none;" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <circle cx="12" cy="12" r="5"/>
             <line x1="12" y1="1" x2="12" y2="3"/>
             <line x1="12" y1="21" x2="12" y2="23"/>
@@ -907,6 +1003,22 @@
       </div>
     </header>
 
+    <!-- GROUND-TRUTH WYZE SENSOR LIVE BANNER -->
+    <div class="sensor-banner">
+      <div class="sensor-info-group">
+        <div class="sensor-pulse-dot" id="sensorPulseDot"></div>
+        <div>
+          <strong>Ground-Truth Contact Sensor:</strong>
+          <span id="sensorMacDisplay" style="font-family: monospace; font-weight: 700; margin-left: 4px;">Wyze v2 (77CB8338)</span>
+        </div>
+      </div>
+      <div class="sensor-telemetry-tags">
+        <span class="sensor-tag" id="sensorRssiTag">📶 -32 dBm</span>
+        <span class="sensor-tag" id="sensorBattTag">🔋 98%</span>
+        <span class="sensor-tag" id="sensorStateTag" style="color: var(--success); font-weight: 800;">CLOSED</span>
+      </div>
+    </div>
+
     <!-- HERO GARAGE DOOR CARD -->
     <div class="hero-card">
       
@@ -914,34 +1026,55 @@
       <div class="garage-art-col">
         <div class="garage-svg-wrap">
           <svg class="garage-svg" viewBox="0 0 320 250" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <!-- Roof / House Outline -->
-            <path d="M160 30L30 95V220H290V95L160 30Z" stroke="var(--text-muted)" stroke-width="2.5" stroke-linejoin="round" opacity="0.35"/>
-            <path d="M50 100V220H270V100" stroke="var(--text-muted)" stroke-width="2.5" stroke-linejoin="round" opacity="0.45"/>
-            <line x1="20" y1="220" x2="300" y2="220" stroke="var(--text-muted)" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
-
-            <!-- Door Frame Clip Path -->
             <defs>
+              <!-- Volumetric Ceiling Light Cone Gradient -->
+              <linearGradient id="lightBeamGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#fef08a" stop-opacity="0.85"/>
+                <stop offset="35%" stop-color="#facc15" stop-opacity="0.45"/>
+                <stop offset="75%" stop-color="#facc15" stop-opacity="0.15"/>
+                <stop offset="100%" stop-color="#facc15" stop-opacity="0"/>
+              </linearGradient>
+
+              <!-- Metallic Slat Gradients -->
+              <linearGradient id="slatGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="var(--slat-bg-start)"/>
+                <stop offset="100%" stop-color="var(--slat-bg-end)"/>
+              </linearGradient>
+
+              <!-- Door Frame Clip Path -->
               <clipPath id="doorFrameClip">
                 <rect x="68" y="105" width="184" height="114" rx="4" />
               </clipPath>
             </defs>
 
-            <!-- Garage Door Slat Group (Smoothly animated up/down based on state) -->
+            <!-- Roof / House Outline -->
+            <path d="M160 30L30 95V220H290V95L160 30Z" stroke="var(--text-muted)" stroke-width="2.5" stroke-linejoin="round" opacity="0.35"/>
+            <path d="M50 100V220H270V100" stroke="var(--text-muted)" stroke-width="2.5" stroke-linejoin="round" opacity="0.45"/>
+            <line x1="20" y1="220" x2="300" y2="220" stroke="var(--text-muted)" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+
+            <!-- Overhead Courtesy Light Cone (Illuminates when light is ON) -->
+            <polygon id="garageLightBeam" points="160,82 48,220 272,220" fill="url(#lightBeamGrad)" opacity="0"/>
+
+            <!-- Overhead Ceiling Light Fixture -->
+            <rect x="146" y="76" width="28" height="6" rx="2" fill="#475569"/>
+            <circle id="ceilingBulb" cx="160" cy="84" r="5" fill="#64748b"/>
+
+            <!-- Garage Door Slat Group (Animated position) -->
             <g clip-path="url(#doorFrameClip)">
               <g id="slatsGroup" class="slat" transform="translate(0, 0)">
                 <!-- Slat 1 -->
-                <rect x="70" y="108" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
+                <rect x="70" y="108" width="180" height="13" rx="2" fill="url(#slatGrad)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
                 <!-- Slat 2 -->
-                <rect x="70" y="125" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
+                <rect x="70" y="125" width="180" height="13" rx="2" fill="url(#slatGrad)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
                 <!-- Slat 3 -->
-                <rect x="70" y="142" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
+                <rect x="70" y="142" width="180" height="13" rx="2" fill="url(#slatGrad)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
                 <!-- Slat 4 -->
-                <rect x="70" y="159" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
+                <rect x="70" y="159" width="180" height="13" rx="2" fill="url(#slatGrad)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
                 <!-- Slat 5 -->
-                <rect x="70" y="176" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
+                <rect x="70" y="176" width="180" height="13" rx="2" fill="url(#slatGrad)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
                 <!-- Slat 6 -->
-                <rect x="70" y="193" width="180" height="13" rx="2" fill="var(--slat-bg)"/>
-                <!-- Bottom Highlight Bar Slat (Illuminated like in screenshot) -->
+                <rect x="70" y="193" width="180" height="13" rx="2" fill="url(#slatGrad)" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+                <!-- Bottom Highlight Bar Slat -->
                 <rect id="slatHighlight" class="slat-glow-bar" x="70" y="209" width="180" height="8" rx="2" fill="var(--slat-highlight)"/>
               </g>
             </g>
@@ -951,34 +1084,41 @@
 
       <!-- Hero Control Column -->
       <div class="hero-ctrl-col">
-        <div class="door-header-label">GARAGE DOOR</div>
+        <div class="door-header-label">MAIN GARAGE DOOR</div>
         <div class="door-title-row">
           <div class="door-state-text" id="doorState">Closed</div>
           <div class="door-pct-text" id="doorPct">0% open</div>
         </div>
 
-        <!-- Big Primary Action Button -->
-        <button id="doorActionBtn" class="btn-door-action" onclick="toggleDoor()">
-          <svg id="doorActionIcon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <circle cx="12" cy="12" r="10"/>
-            <polyline points="16 12 12 8 8 12"/>
-            <line x1="12" y1="16" x2="12" y2="8"/>
-          </svg>
-          <span id="doorActionText">Open</span>
-        </button>
+        <!-- Big Primary Action Button & Presets -->
+        <div class="door-action-row">
+          <button id="doorActionBtn" class="btn-door-action" onclick="toggleDoor()">
+            <svg id="doorActionIcon" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="16 12 12 8 8 12"/>
+              <line x1="12" y1="16" x2="12" y2="8"/>
+            </svg>
+            <span id="doorActionText">Open</span>
+          </button>
+
+          <div class="preset-pill-group">
+            <button class="btn-preset-pill" onclick="sendPreset(25)">Vent 25%</button>
+            <button class="btn-preset-pill" onclick="sendPreset(100)">Open 100%</button>
+          </div>
+        </div>
 
         <!-- Position Slider Track -->
         <div class="position-slider-box">
           <div class="slider-labels">
-            <span>Set position</span>
+            <span>Door Position</span>
             <span id="sliderPctLabel">0%</span>
           </div>
           <div class="range-wrap">
             <div id="rangeFill" class="range-fill"></div>
           </div>
           <div class="slider-sub-labels">
-            <span>Closed</span>
-            <span>Fully open</span>
+            <span>Closed (0%)</span>
+            <span>Fully open (100%)</span>
           </div>
         </div>
       </div>
@@ -996,8 +1136,10 @@
             </svg>
           </div>
           <div class="card-titles">
-            <div class="card-title">Garage Light</div>
-            <div class="card-subtitle" id="lightSubtitle">Off</div>
+            <div class="card-title">Opener Courtesy Light</div>
+            <div class="card-subtitle" id="lightSubtitle">
+              <span>Off</span>
+            </div>
           </div>
         </div>
         <label class="switch">
@@ -1016,8 +1158,8 @@
             </svg>
           </div>
           <div class="card-titles">
-            <div class="card-title">Remote lock</div>
-            <div class="card-subtitle" id="lockSubtitle">Unlocked</div>
+            <div class="card-title">Remote Lock</div>
+            <div class="card-subtitle" id="lockSubtitle">Unlocked (RF Enabled)</div>
           </div>
         </div>
         <label class="switch">
@@ -1036,8 +1178,8 @@
           </svg>
         </div>
         <div class="telemetry-text">
-          <div class="telemetry-label">Obstruction</div>
-          <div class="telemetry-value" id="telemObstruction">Clear</div>
+          <div class="telemetry-label">Safety Beam</div>
+          <div class="telemetry-value green" id="telemObstruction">Clear</div>
         </div>
       </div>
 
@@ -1049,7 +1191,7 @@
           </svg>
         </div>
         <div class="telemetry-text">
-          <div class="telemetry-label">Motor</div>
+          <div class="telemetry-label">Motor State</div>
           <div class="telemetry-value" id="telemMotor">Idle</div>
         </div>
       </div>
@@ -1062,8 +1204,8 @@
           </svg>
         </div>
         <div class="telemetry-text">
-          <div class="telemetry-label">Wall Button</div>
-          <div class="telemetry-value" id="telemWall">Released</div>
+          <div class="telemetry-label">Wall Console</div>
+          <div class="telemetry-value" id="telemWall">Ready</div>
         </div>
       </div>
 
@@ -1076,26 +1218,26 @@
           </svg>
         </div>
         <div class="telemetry-text">
-          <div class="telemetry-label">Cycles</div>
+          <div class="telemetry-label">Rolling Cycle</div>
           <div class="telemetry-value" id="telemCycles">----</div>
         </div>
       </div>
 
       <div class="telemetry-card">
         <div class="telemetry-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--success)" stroke-width="2">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
             <polyline points="22 4 12 14.01 9 11.01"/>
           </svg>
         </div>
         <div class="telemetry-text">
-          <div class="telemetry-label">Synced</div>
-          <div class="telemetry-value green" id="telemSynced">Yes</div>
+          <div class="telemetry-label">Ground-Truth</div>
+          <div class="telemetry-value green" id="telemSynced">Synced</div>
         </div>
       </div>
     </div>
 
-    <!-- COLLAPSIBLE DEVICE INFO STRIP -->
+    <!-- COLLAPSIBLE DEVICE STRIP -->
     <div id="deviceStrip" class="strip-card" onclick="toggleStrip('deviceStrip')">
       <div class="strip-header">
         <div class="strip-title-group">
@@ -1104,10 +1246,10 @@
             <line x1="12" y1="16" x2="12" y2="12"/>
             <line x1="12" y1="8" x2="12.01" y2="8"/>
           </svg>
-          <span>Device</span>
+          <span>Hardware & Radio Telemetry</span>
         </div>
         <div class="strip-right">
-          <span class="strip-pill" id="deviceRssiPill">📶 -51 dBm • 98%</span>
+          <span class="strip-pill" id="deviceRssiPill">TI CC1101 • 315MHz</span>
           <svg class="strip-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6 9 12 15 18 9"/>
           </svg>
@@ -1116,11 +1258,11 @@
       <div class="strip-drawer" onclick="event.stopPropagation()">
         <div class="hw-grid">
           <div class="hw-item">
-            <div class="hw-label">Transceiver</div>
-            <div class="hw-val" id="hwRadio">TI CC1101</div>
+            <div class="hw-label">Transceiver Chip</div>
+            <div class="hw-val" id="hwRadio">TI CC1101 (SPI0 CE0)</div>
           </div>
           <div class="hw-item">
-            <div class="hw-label">Frequency</div>
+            <div class="hw-label">Carrier Frequency</div>
             <div class="hw-val" id="hwFreq">315.00 MHz</div>
           </div>
           <div class="hw-item">
@@ -1136,7 +1278,7 @@
             <div class="hw-val" id="hwFixed">----</div>
           </div>
           <div class="hw-item">
-            <div class="hw-label">Burst Repeats</div>
+            <div class="hw-label">Burst Transmit Repeats</div>
             <div class="hw-val" id="hwRepeats">8 Bursts</div>
           </div>
         </div>
@@ -1151,10 +1293,10 @@
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
           </svg>
-          <span>Settings</span>
+          <span>Tools & RF Calibration</span>
         </div>
         <div class="strip-right">
-          <span class="strip-pill">Security+ 1.0 • 315 MHz ▾</span>
+          <span class="strip-pill">Security+ 1.0 • Purple Learn ▾</span>
           <svg class="strip-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="6 9 12 15 18 9"/>
           </svg>
@@ -1164,15 +1306,15 @@
         <div class="actions-grid">
           <button class="btn-action-tile" onclick="openPairModal()">
             <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-            Pair Door (Purple Button)
+            Pair Door (Purple Learn Button)
           </button>
           <button class="btn-action-tile" onclick="openPairLightModal()">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v2m0 16v2m-8-10H2m20 0h-2m-2.93-7.07l-1.41 1.41m-9.32 9.32l-1.41 1.41m0-12.14l1.41 1.41m9.32 9.32l1.41 1.41M12 6a6 6 0 100 12 6 6 0 000-12z"/></svg>
-            Pair Light (Wall Panel)
+            Pair Opener Light (Wall Panel)
           </button>
           <button class="btn-action-tile" onclick="openSyncModal()">
             <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            Sync Rolling Counter
+            Calibrate Rolling Counter
           </button>
           <button class="btn-action-tile" onclick="resetRemoteId()">
             <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 4v16m8-8H4"/></svg>
@@ -1180,20 +1322,20 @@
           </button>
           <button class="btn-action-tile" onclick="testRf()">
             <svg width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/></svg>
-            Test 315MHz RF Output
+            Test 315MHz Carrier Tone
           </button>
         </div>
       </div>
     </div>
 
-    <!-- LIVE LOGS BAR (Matching screenshot bottom bar) -->
+    <!-- LIVE LOGS BAR -->
     <div id="logsBar" class="logs-bar" onclick="toggleLogs()">
       <div class="logs-summary-row">
         <div class="logs-title-wrap">
-          <div class="online-dot" style="width: 6px; height: 6px;"></div>
-          <span>LIVE LOGS</span>
+          <div class="sensor-pulse-dot" style="width: 6px; height: 6px;"></div>
+          <span>LIVE ACTIVITY LOGS</span>
         </div>
-        <div class="logs-latest-msg" id="logsPreview">Waiting for activity...</div>
+        <div class="logs-latest-msg" id="logsPreview">Listening for events...</div>
         <svg class="strip-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="6 9 12 15 18 9"/>
         </svg>
@@ -1205,11 +1347,11 @@
 
     <!-- FOOTER -->
     <footer>
-      <span>Chamberlain CC1101</span>
+      <span>Chamberlain Security+ 1.0 (315 MHz)</span>
       <span>•</span>
-      <span>Security+ 1.0 (315 MHz)</span>
+      <span>Wyze Sense v2 Ground-Truth</span>
       <span>•</span>
-      <span>Raspberry Pi</span>
+      <span>Raspberry Pi 3B+</span>
     </footer>
 
   </div>
@@ -1224,13 +1366,13 @@
         Pair Garage Door (Button 0)
       </div>
       <div class="modal-step">
-        <strong>Step 1:</strong> Walk over to your garage ceiling opener.
+        <strong>Step 1:</strong> Walk over to your Chamberlain ceiling motor unit.
       </div>
       <div class="modal-step">
-        <strong>Step 2:</strong> Press and release the <strong>PURPLE</strong> learn button. The LED will turn solid ON for 30s.
+        <strong>Step 2:</strong> Press and release the <strong>PURPLE</strong> learn button. The LED will turn solid ON for 30 seconds.
       </div>
       <div class="modal-step">
-        <strong>Step 3:</strong> Click "Send Pairing Signal" below. Opener lights will flash twice upon success!
+        <strong>Step 3:</strong> Click "Send Pairing Signal" below. Opener courtesy light will click and flash twice!
       </div>
       <div class="modal-actions">
         <button class="btn-modal btn-cancel" onclick="closePairModal()">Cancel</button>
@@ -1249,16 +1391,13 @@
         Pair Opener Light (Button 1)
       </div>
       <div class="modal-step">
-        <strong>Step 1:</strong> Make sure the garage door is <strong>CLOSED</strong>.
+        <strong>Step 1:</strong> Ensure garage door is currently <strong>CLOSED</strong>.
       </div>
       <div class="modal-step">
-        <strong>Step 2:</strong> Go to your <strong>Wall Door Control Panel</strong> (do NOT press the ceiling purple button).
+        <strong>Step 2:</strong> At your <strong>Multi-Function Wall Console</strong> (do not press ceiling purple button), press and hold the <strong>LIGHT</strong> button, then press and hold <strong>LOCK</strong>.
       </div>
       <div class="modal-step">
-        <strong>Step 3:</strong> Press and hold the <strong>LIGHT</strong> button, and while holding it, also press and hold <strong>LOCK</strong>.
-      </div>
-      <div class="modal-step">
-        <strong>Step 4:</strong> Click "Send Light Pairing Signal" below. Keep holding wall buttons until the lights <strong>flash</strong>!
+        <strong>Step 3:</strong> Click "Send Light Pairing Signal" below while continuing to hold the wall buttons until lights flash!
       </div>
       <div class="modal-actions">
         <button class="btn-modal btn-cancel" onclick="closePairLightModal()">Cancel</button>
@@ -1270,8 +1409,8 @@
   <!-- Sync Counter Modal -->
   <div id="syncModal" class="modal-overlay">
     <div class="modal-box">
-      <div class="modal-title">Manual Counter Adjustment</div>
-      <p style="font-size: 0.85rem; color: var(--text-muted);">If rolling counter desynchronized, enter a higher counter value:</p>
+      <div class="modal-title">Manual Counter Calibration</div>
+      <p style="font-size: 0.85rem; color: var(--text-muted);">If rolling counter desynchronized from the opener, enter a forward counter value:</p>
       <input type="number" id="syncInput" class="input-field" placeholder="e.g. 5000">
       <div class="modal-actions">
         <button class="btn-modal btn-cancel" onclick="closeSyncModal()">Cancel</button>
@@ -1284,6 +1423,47 @@
     let isTransmitting = false;
     let currentDoorState = "CLOSED";
     let currentPercent = 0;
+    let soundEnabled = true;
+    let audioCtx = null;
+    let lightTimerSeconds = 0;
+    let lightIntervalId = null;
+
+    // WEB AUDIO API FEEDBACK SYNTHESIZER
+    function playClickSound(freq = 600, duration = 0.04) {
+      if (!soundEnabled) return;
+      try {
+        if (!audioCtx) {
+          audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (audioCtx.state === 'suspended') {
+          audioCtx.resume();
+        }
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(120, audioCtx.currentTime + duration);
+        gain.gain.setValueAtTime(0.12, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.start();
+        osc.stop(audioCtx.currentTime + duration);
+      } catch (e) {}
+    }
+
+    function toggleSound() {
+      soundEnabled = !soundEnabled;
+      localStorage.setItem("gdo_sound", soundEnabled ? "1" : "0");
+      document.getElementById("soundIcon").textContent = soundEnabled ? "🔊" : "🔇";
+      if (soundEnabled) playClickSound(800, 0.06);
+    }
+
+    function initSound() {
+      const saved = localStorage.getItem("gdo_sound");
+      soundEnabled = saved !== "0";
+      document.getElementById("soundIcon").textContent = soundEnabled ? "🔊" : "🔇";
+    }
 
     // THEME HANDLING (Dark / Light)
     function initTheme() {
@@ -1292,6 +1472,7 @@
     }
 
     function toggleTheme() {
+      playClickSound(500, 0.05);
       const cur = document.documentElement.getAttribute("data-theme") || "dark";
       const next = cur === "dark" ? "light" : "dark";
       setTheme(next);
@@ -1312,6 +1493,14 @@
     }
 
     initTheme();
+    initSound();
+
+    // FORMAT TIMER MM:SS
+    function formatTime(totalSec) {
+      const m = Math.floor(totalSec / 60);
+      const s = totalSec % 60;
+      return `${m}:${s < 10 ? '0' : ''}${s}`;
+    }
 
     // STATUS POLLING
     async function fetchStatus() {
@@ -1326,7 +1515,7 @@
     }
 
     function updateUI(data) {
-      // Door State & Percentage
+      // 1. Door State & Percent
       const door = data.door || {};
       currentDoorState = (door.state || "CLOSED").toUpperCase();
       currentPercent = typeof door.percent === "number" ? door.percent : (currentDoorState === "OPEN" ? 100 : 0);
@@ -1337,83 +1526,120 @@
       const rangeFill = document.getElementById("rangeFill");
       const actionBtn = document.getElementById("doorActionBtn");
       const actionText = document.getElementById("doorActionText");
-      const actionIcon = document.getElementById("doorActionIcon");
+      const slatHighlight = document.getElementById("slatHighlight");
       const slatsGroup = document.getElementById("slatsGroup");
 
       if (currentDoorState === "OPENING") {
         stateEl.textContent = "Opening";
         actionText.textContent = "Stop";
-        actionBtn.style.background = "#eab308";
+        actionBtn.style.background = "#f59e0b";
+        slatHighlight.style.fill = "#f59e0b";
+        slatHighlight.style.filter = "drop-shadow(0 0 10px #f59e0b)";
       } else if (currentDoorState === "CLOSING") {
         stateEl.textContent = "Closing";
         actionText.textContent = "Stop";
-        actionBtn.style.background = "#eab308";
+        actionBtn.style.background = "#f59e0b";
+        slatHighlight.style.fill = "#f59e0b";
+        slatHighlight.style.filter = "drop-shadow(0 0 10px #f59e0b)";
       } else if (currentDoorState === "OPEN") {
         stateEl.textContent = "Open";
-        actionText.textContent = "Close";
+        actionText.textContent = "Close Door";
         actionBtn.style.background = "#3b82f6";
+        slatHighlight.style.fill = "var(--slat-highlight)";
+        slatHighlight.style.filter = "none";
       } else {
         stateEl.textContent = "Closed";
-        actionText.textContent = "Open";
+        actionText.textContent = "Open Door";
         actionBtn.style.background = "#3b82f6";
+        slatHighlight.style.fill = "var(--slat-highlight)";
+        slatHighlight.style.filter = "drop-shadow(0 0 8px var(--slat-glow))";
       }
 
       pctEl.textContent = `${currentPercent}% open`;
       sliderPct.textContent = `${currentPercent}%`;
       rangeFill.style.width = `${currentPercent}%`;
 
-      // Update architectural SVG slats position
-      // At 0% open, translate = 0. At 100% open, translate = -100px (retracted)
+      // Animate slats smoothly
       const translateY = -((currentPercent / 100) * 105);
       slatsGroup.style.transform = `translate(0, ${translateY}px)`;
 
-      // Light Switch State
+      // 2. Volumetric Overhead Light Simulation
       const lightOn = !!(data.light && data.light.on);
+      const lightBeam = document.getElementById("garageLightBeam");
+      const ceilingBulb = document.getElementById("ceilingBulb");
       const lightSwitch = document.getElementById("lightToggleSwitch");
       const lightSub = document.getElementById("lightSubtitle");
       const lightBadge = document.getElementById("lightIconBadge");
+
       lightSwitch.checked = lightOn;
-      lightSub.textContent = lightOn ? "On" : "Off";
       if (lightOn) {
+        lightBeam.style.opacity = "0.75";
+        ceilingBulb.style.fill = "#fde047";
+        ceilingBulb.style.filter = "drop-shadow(0 0 8px #facc15)";
         lightBadge.classList.add("light-on");
+
+        // Countdown timer badge
+        const remSec = data.light.auto_off_remaining_sec || 0;
+        if (remSec > 0) {
+          lightSub.innerHTML = `<span>On</span> <span class="light-timer-badge">⏱ Auto-off ${formatTime(remSec)}</span>`;
+        } else {
+          lightSub.innerHTML = `<span>On</span> <span class="light-timer-badge">Active</span>`;
+        }
       } else {
+        lightBeam.style.opacity = "0";
+        ceilingBulb.style.fill = "#64748b";
+        ceilingBulb.style.filter = "none";
         lightBadge.classList.remove("light-on");
+        lightSub.innerHTML = `<span>Off</span> <span style="font-size:0.75rem; color:var(--text-muted);">(Chamberlain 4.5m timer)</span>`;
       }
 
-      // Lock Switch State
+      // 3. Remote Lock Switch
       const isLocked = !!(data.security && data.security.remote_lock);
       const lockSwitch = document.getElementById("lockToggleSwitch");
       const lockSub = document.getElementById("lockSubtitle");
       lockSwitch.checked = isLocked;
-      lockSub.textContent = isLocked ? "Locked" : "Unlocked";
+      lockSub.textContent = isLocked ? "Locked (RF Blocked)" : "Unlocked (RF Enabled)";
 
-      // Telemetry
+      // 4. Ground-Truth Wyze Sensor Banner
+      const sensor = data.sensor || {};
+      const mac = sensor.mac || "77CB8338";
+      const batt = sensor.battery !== undefined ? sensor.battery : 98;
+      const rssi = sensor.signal_strength !== undefined ? sensor.signal_strength : -32;
+      const sensorSt = (sensor.state || (currentDoorState === "OPEN" ? "open" : "closed")).toUpperCase();
+
+      document.getElementById("sensorMacDisplay").textContent = `Wyze v2 (${mac})`;
+      document.getElementById("sensorRssiTag").textContent = `📶 ${rssi} dBm`;
+      document.getElementById("sensorBattTag").textContent = `🔋 ${batt}%`;
+      const stateTag = document.getElementById("sensorStateTag");
+      stateTag.textContent = sensorSt;
+      stateTag.style.color = sensorSt === "OPEN" ? "var(--warning)" : "var(--success)";
+
+      // 5. Telemetry Strip
       document.getElementById("telemObstruction").textContent = door.obstruction || "Clear";
       document.getElementById("telemMotor").textContent = door.motor || "Idle";
-      document.getElementById("telemWall").textContent = door.wall_button || "Released";
+      document.getElementById("telemWall").textContent = door.wall_button || "Ready";
       document.getElementById("telemCycles").textContent = data.rolling_code ? data.rolling_code.toLocaleString() : "----";
-      document.getElementById("telemSynced").textContent = "Yes";
+      document.getElementById("telemSynced").textContent = "Wyze Ground-Truth";
 
-      // Device Drawer
+      // 6. Device Drawer
       const hw = data.hardware || {};
-      document.getElementById("hwRadio").textContent = hw.is_simulation ? "Mock (Sim)" : "TI CC1101";
+      document.getElementById("hwRadio").textContent = hw.is_simulation ? "Mock (Sim)" : "TI CC1101 (SPI0 CE0)";
       document.getElementById("hwFreq").textContent = `${data.frequency_mhz || 315.0} MHz`;
       document.getElementById("hwVersion").textContent = hw.version || "0x14";
       document.getElementById("hwState").textContent = hw.state || "0x01 (IDLE)";
-      document.getElementById("hwFixed").textContent = data.fixed_code_hex || (data.fixed_code ? `0x${data.fixed_code.toString(16).toUpperCase()}` : "----");
+      document.getElementById("hwFixed").textContent = data.fixed_code_hex || "----";
       document.getElementById("hwRepeats").textContent = `${data.repeats || 8} Bursts`;
 
-      // Live Logs
+      // 7. Live Activity Logs
       const logs = data.recent_logs || [];
       const preview = document.getElementById("logsPreview");
       const drawer = document.getElementById("logsDrawer");
       if (logs.length > 0) {
         const top = logs[0];
         preview.textContent = `${top.timestamp.split(" ")[1] || ""} [${top.action}] - ${top.details || "Success"}`;
-        
         drawer.innerHTML = logs.map(l => `
           <div class="log-line ${l.success ? '' : 'error'}">
-            <span>[${l.timestamp.split(" ")[1] || ""}]</span>
+            <span style="color: var(--text-muted);">[${l.timestamp.split(" ")[1] || ""}]</span>
             <strong>${l.action}:</strong>
             <span>${l.details || ''}</span>
           </div>
@@ -1424,6 +1650,7 @@
     // TOGGLE DOOR
     async function toggleDoor() {
       if (isTransmitting) return;
+      playClickSound(700, 0.08);
       const btn = document.getElementById("doorActionBtn");
       btn.classList.add("busy");
       isTransmitting = true;
@@ -1434,7 +1661,6 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ repeats: 8 })
         });
-        const result = await res.json();
         await fetchStatus();
       } catch (err) {
         alert("Failed to toggle garage door: " + err.message);
@@ -1444,10 +1670,26 @@
       }
     }
 
+    // PRESET DOOR POSITIONS
+    async function sendPreset(pct) {
+      playClickSound(650, 0.06);
+      try {
+        await fetch('/api/toggle', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repeats: 8, target_percent: pct })
+        });
+        await fetchStatus();
+      } catch (err) {
+        alert("Preset failed: " + err.message);
+      }
+    }
+
     // TOGGLE LIGHT SWITCH
     async function toggleLightSwitch(targetChecked) {
+      playClickSound(targetChecked ? 900 : 400, 0.05);
       try {
-        const res = await fetch('/api/light', {
+        await fetch('/api/light', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ repeats: 8 })
@@ -1461,8 +1703,9 @@
 
     // TOGGLE REMOTE LOCK SWITCH
     async function toggleLockSwitch(targetChecked) {
+      playClickSound(targetChecked ? 450 : 850, 0.05);
       try {
-        const res = await fetch('/api/lock', {
+        await fetch('/api/lock', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ locked: targetChecked })
@@ -1476,28 +1719,33 @@
 
     // STRIP TOGGLES
     function toggleStrip(id) {
+      playClickSound(550, 0.03);
       const el = document.getElementById(id);
       el.classList.toggle("expanded");
     }
 
     function toggleLogs() {
+      playClickSound(550, 0.03);
       const el = document.getElementById("logsBar");
       el.classList.toggle("expanded");
     }
 
     // PAIR DOOR MODAL
     function openPairModal() {
+      playClickSound();
       document.getElementById('pairModal').classList.add('active');
     }
     function closePairModal() {
+      playClickSound();
       document.getElementById('pairModal').classList.remove('active');
     }
     async function sendPair() {
+      playClickSound(800, 0.1);
       const btn = document.getElementById('sendPairBtn');
       btn.textContent = 'Transmitting...';
       btn.disabled = true;
       try {
-        const res = await fetch('/api/pair', {
+        await fetch('/api/pair', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ repeats: 16 })
@@ -1514,17 +1762,20 @@
 
     // PAIR LIGHT MODAL
     function openPairLightModal() {
+      playClickSound();
       document.getElementById('pairLightModal').classList.add('active');
     }
     function closePairLightModal() {
+      playClickSound();
       document.getElementById('pairLightModal').classList.remove('active');
     }
     async function sendPairLight() {
+      playClickSound(800, 0.1);
       const btn = document.getElementById('sendPairLightBtn');
       btn.textContent = 'Transmitting Light Bursts...';
       btn.disabled = true;
       try {
-        const res = await fetch('/api/pair-light', {
+        await fetch('/api/pair-light', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ repeats: 24 })
@@ -1541,12 +1792,15 @@
 
     // SYNC MODAL
     function openSyncModal() {
+      playClickSound();
       document.getElementById('syncModal').classList.add('active');
     }
     function closeSyncModal() {
+      playClickSound();
       document.getElementById('syncModal').classList.remove('active');
     }
     async function submitSync() {
+      playClickSound();
       const val = parseInt(document.getElementById('syncInput').value, 10);
       if (isNaN(val) || val <= 0) {
         alert("Enter a valid integer counter");
@@ -1597,9 +1851,9 @@
       }
     }
 
-    // POLLING CYCLE: 1.5 seconds
+    // FAST POLLING: 1.2 seconds for real-time responsiveness
     fetchStatus();
-    setInterval(fetchStatus, 1500);
+    setInterval(fetchStatus, 1200);
   </script>
 </body>
 </html>
