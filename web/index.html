@@ -144,6 +144,7 @@ button.row:active,a.row:active{background:var(--fill)}
 .row.tint .lbl{color:var(--blue)}
 .list:not(.notify-on) .nmore{display:none!important}
 .list:not(.ac-on) .acmore{display:none!important}
+.list:not(.dist-on) .dmore,.list:not(.dist-on) #dReadings{display:none!important}
 .ac-line{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding:10px 12px;border-radius:12px;
   background:color-mix(in srgb,var(--orange) 14%,transparent);color:var(--orange);font-size:15px;font-weight:600;letter-spacing:-.24px}
 .ac-line[hidden]{display:none}
@@ -336,7 +337,7 @@ button.row:active,a.row:active{background:var(--fill)}
         <span class="ic"><svg class="i"><use href="#i-unlock" id="lockUse"/></svg></span>
         <span><div class="t">Remote Lock</div><div class="s" id="lockSub">Unlocked</div></span>
       </button>
-      <button class="tile green" id="tileSensor" onclick="go('device','sensorSec')">
+      <button class="tile green" id="tileSensor" onclick="doorSheet()">
         <span class="ic"><svg class="i"><use href="#i-sensor"/></svg></span>
         <span><div class="t" id="contactTitle">Contact</div><div class="s" id="sensorSub">No data</div></span>
       </button>
@@ -380,7 +381,7 @@ button.row:active,a.row:active{background:var(--fill)}
     <div class="list">
       <button class="row" onclick="renameSensor('door')"><span class="lbl">Name</span><span class="val" id="sName">—</span><svg class="i chev"><use href="#i-chev"/></svg></button>
       <div class="row"><span class="lbl">ID</span><span class="val mono" id="sMac">—</span></div>
-      <div class="row"><span class="lbl">Contact</span><span class="val" id="sState">—</span></div>
+      <button class="row" onclick="doorSheet()"><span class="lbl">Contact<small>Tap to correct if it's wrong</small></span><span class="val" id="sState">—</span><svg class="i chev"><use href="#i-chev"/></svg></button>
       <div class="row"><span class="lbl">Battery</span><span class="val" id="sBatt">—</span></div>
       <div class="row"><span class="lbl">Signal</span><span class="val" id="sRssi">—</span></div>
       <div class="row"><span class="lbl">Last Seen</span><span class="val" id="sSeen">—</span></div>
@@ -397,6 +398,17 @@ button.row:active,a.row:active{background:var(--fill)}
       <div class="row"><span class="lbl">Battery</span><span class="val" id="mBatt">—</span></div>
       <div class="row"><span class="lbl">Signal</span><span class="val" id="mRssi">—</span></div>
     </div>
+    <div class="group-h" id="distSec">Car Height &amp; Width Sensors</div>
+    <div class="list" id="distList">
+      <div class="row"><span class="lbl">Use Distance Sensors<small>Ceiling sensors measure what's parked below</small></span><label class="switch"><input type="checkbox" id="dEnabled" onchange="setDist({enabled: this.checked})"></label></div>
+      <div class="row dmore"><span class="lbl">Under the Sensors<small id="dSize">—</small></span><span class="val" id="dObject">—</span></div>
+      <div id="dReadings"></div>
+      <div class="row dmore" style="display:block;padding:10px 16px 6px"><span style="display:block">A Car Is Wider Than</span>
+        <div class="seg" id="dWidthSeg"><button data-v="80">80 cm</button><button data-v="100">1 m</button><button data-v="130">1.3 m</button></div></div>
+      <button class="row dmore tint" onclick="calibrateDist()"><span class="lbl">Calibrate Empty Garage</span></button>
+    </div>
+    <div class="group-f" id="distNote">A car is taller than 50 cm and wider than the setting above, so it sits under both sensors at once. A person is too narrow to cover both, so a tall person is never counted as a car.</div>
+
     <div class="group-f" id="carNote">Halo estimates whether the car is home from motion around each door cycle: motion before opening means someone drove out, motion after closing means someone got out. Tap Car to correct it.</div>
 
     <div class="group-h" id="sensorsSec">Sensors</div>
@@ -702,6 +714,22 @@ function submitSync() {
 }
 const testRf = () => { toast("Transmitting test bursts…"); act(() => api("/api/test-rf", { duration: 3 }), r => r.message); };
 const setCar = present => act(() => api("/api/car", { present }), present ? "Car marked as in the garage" : "Car marked as away");
+function doorSheet() {
+  const st = S ? S.door.state : "CLOSED";
+  actionSheet("Is the garage door open or closed?",
+    `Halo shows it as ${st.toLowerCase()}. Correct it if the sensor is wrong. No signal is sent to the opener.`, [
+      { label: "It's Open", fn: () => act(() => api("/api/door/correct", { state: "open" }), "Door marked as open") },
+      { label: "It's Closed", fn: () => act(() => api("/api/door/correct", { state: "closed" }), "Door marked as closed") },
+      { label: "Sensor Settings", fn: () => go("device", "sensorSec") },
+    ]);
+}
+const fmtLen = cm => { const i = cm / 2.54; return `${(cm / 100).toFixed(2)} m (${Math.floor(i / 12)} ft ${Math.round(i % 12)} in)`; };
+const setDist = c => act(() => api("/api/distance/settings", c), c.enabled === true ? "Distance sensors on"
+  : c.enabled === false ? "Distance sensors off" : "Saved");
+$("dWidthSeg").onclick = e => e.target.dataset.v && setDist({ min_width_cm: +e.target.dataset.v });
+const calibrateDist = () => confirmAction("Is the garage empty?",
+  "Move the car out and make sure nothing is under the sensors. Halo will remember this as the floor.",
+  "Calibrate Now", () => act(() => api("/api/distance/calibrate"), "Calibrated on the empty floor"), null, null, false);
 function carSheet() {
   const c = S && S.car ? S.car : { state: "unknown" };
   confirmAction("Where is the car?", c.reason || "Correct Halo if its estimate is wrong.",
@@ -925,8 +953,40 @@ function render(d) {
   const carTxt = { present: "In garage", away: "Away", unknown: "Unknown" }[car.state] || "Unknown";
   const hasMotion = !!mo.connected;
   put("tileCar", "class", "tile blue" + (car.state === "present" ? " on" : ""));
-  put("carSub", "text", !hasMotion && car.state === "unknown" ? "No sensor" : carTxt + (mo.active ? " · Motion" : ""));
-  put("cState", "text", carTxt + (car.source === "estimate" ? " (estimated)" : ""));
+  put("carSub", "text", !hasMotion && car.state === "unknown" && !(d.distance && d.distance.enabled) ? "No sensor"
+    : carTxt + (mo.active ? " · Motion" : ""));
+  put("carNote", "text", d.distance && d.distance.enabled && d.distance.status === "ok"
+    ? "The distance sensors measure the car directly. The motion estimate is only used if they stop reporting. Tap Car to correct it."
+    : "Halo estimates whether the car is home from motion around each door cycle: motion before opening means someone drove out, motion after closing means someone got out. Tap Car to correct it.");
+  put("cState", "text", carTxt + (car.source === "estimate" ? " (estimated)" : car.source === "distance" ? " (measured)" : ""));
+  // Distance sensors
+  const ds = d.distance || {};
+  $("dEnabled").checked = !!ds.enabled;
+  $("distList").classList.toggle("dist-on", !!ds.enabled);
+  document.querySelectorAll("#dWidthSeg button").forEach(b => b.classList.toggle("sel", +b.dataset.v === ds.min_width_cm));
+  const m = cm => (cm / 100).toFixed(2) + " m", ft = cm => { const i = cm / 2.54; return `${Math.floor(i / 12)}'${Math.round(i % 12)}"`; };
+  const objTxt = ds.status !== "ok" ? ({ "needs calibration": "Calibrate first", "no data": "No readings", off: "Off" }[ds.status] || ds.status || "—")
+    : !ds.height_cm ? "Empty floor" : ds.present ? "Car" : "Too narrow for a car";
+  put("dObject", "text", objTxt);
+  put("dSize", "text", ds.status === "ok" && ds.height_cm
+    ? (ds.width_measurable ? `${m(ds.height_cm)} tall × ${m(ds.width_cm)} wide (${ft(ds.height_cm)} × ${ft(ds.width_cm)})`
+                           : `${m(ds.height_cm)} tall (${ft(ds.height_cm)}), width unknown`)
+    : ds.status === "ok" ? "Nothing taller than 50 cm" : "Ceiling sensors pointing down at the parking spot");
+  put("dObject", "class", "val " + (ds.present ? "ok" : ""));
+  const rk = JSON.stringify(ds.readings || {});
+  if (rk !== cache.get("dread")) {
+    cache.set("dread", rk);
+    $("dReadings").innerHTML = Object.entries(ds.readings || {}).map(([id, r]) => {
+      const v = r.status !== "ok" ? r.status : r.zones ? `${r.tall_zones} of ${r.zones} zones tall`
+        : r.tall ? `${fmtLen(r.height_cm)} object` : "floor";
+      return `<div class="row"><span class="lbl">Sensor "${esc(id)}"</span><span class="val">${esc(v)}</span></div>`;
+    }).join("");
+  }
+  const distWarn = ds.enabled && ds.status === "ok" && ds.width_measurable === false;
+  put("distNote", "text", ds.error ? ds.error : distWarn
+    ? "Only one sensor is reporting, so Halo can measure height but not width. A tall person could look like a car. Add a second sensor about 1.2 m away (see README)."
+    : "A car is taller than 50 cm and wider than the setting above, so it sits under both sensors at once. A person is too narrow to cover both, so a tall person is never counted as a car.");
+  put("distNote", "class", "group-f" + (ds.error || distWarn ? " bad" : ""));
   put("mName", "text", mo.name || "Motion Sensor");
   put("mMac", "text", mo.mac || "—");
   put("mState", "text", hasMotion ? (mo.active ? "Detected" : "Clear") : "Waiting for report");

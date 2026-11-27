@@ -17,7 +17,7 @@ Halo drives Chamberlain, LiftMaster and Craftsman openers with the **purple Lear
 * **Door alerts.** Notifications when the garage door opens, closes or is left open, with a Close button. No Apple home hub needed.
 * **Local-first.** Door, light, sensor and HomeKit all run on your LAN. Losing the internet or Tailscale never stops the garage, and Halo reconnects within seconds when the network blips.
 * **Ground-truth sensing.** A Wyze Sense v2 contact sensor over MQTT (or any integration that POSTs to `/api/sensor`) overrides the simulated door position.
-* **Is the car home?** An optional Wyze motion sensor in the bay lets Halo estimate whether the car is in the garage, and you can correct it with a tap.
+* **Is the car home?** Two ceiling distance sensors measure what's parked below. A car is tall **and** wide, so a tall person is never mistaken for one. A Wyze motion sensor can give an estimate instead. Either way, you can correct it with a tap.
 * **Auto-close.** Closes the door after it's been left open, but only when the contact sensor confirms it's open, after a warning with **Keep Open**, and not while someone's moving in the garage.
 * **Sensors & bridge.** Pair Wyze sensors and choose what each one does from the app. If the USB bridge drops or is replugged, Halo reconnects it automatically.
 * **Remote lock.** While it is on, every door command is refused, including from HomeKit.
@@ -141,6 +141,9 @@ Halo keeps the rolling code in this file. Optional keys:
 | `notifications.*` | off | Door alerts: `enabled`, `server`, `topic`, `left_open_minutes`, `on_open`, `on_close` (set from the app) |
 | `sensor_name` / `car_sensor_name` | `Garage Door Sensor` / `Car Bay Motion` | Friendly names shown in the app and activity log (rename in **Device → Name**) |
 | `car_detection.before_open_sec` / `after_close_sec` | `120` / `120` | How far before opening and after closing Halo looks for motion |
+| `distance_sensor.enabled` | off | Car height & width sensors (set from the app) |
+| `distance_sensor.sensors` | front: GPIO 17/27 at 0 cm, back: GPIO 22/23 at 120 cm | Each sensor's `id`, `driver` (`hcsr04`, `api` or `grid`), pins, position `x_cm`/`y_cm`, and calibrated `floor_cm` |
+| `distance_sensor.min_height_cm` / `min_width_cm` / `stable_seconds` | `50` / `100` / `20` | What counts as a car, and how long it must hold steady |
 | `mqtt.enabled` / `broker` / `port` | `true` / `127.0.0.1` / `1883` | Local MQTT broker (use a LAN IP, never a Tailscale address) |
 | `mqtt.topic` | `wyzesense2mqtt/#` | Wyze sensor topic |
 | `mqtt.base_topic` | `halo/garage` | Prefix for Halo's state and command topics |
@@ -205,6 +208,7 @@ Put it at the **top of the door**:
 * The top panel only meets the header when the door is fully down, so the sensor reads **open** if the door stops even a little way up. Up there it's also clear of cars, bikes, water and road salt.
 * **Steel door?** If the magnet sticks to the panel and the reading is flaky, put a 3–5 mm plastic or wood spacer under the magnet.
 * **Check it before you stick it down:** open and close the door a few times and watch **Device → Contact Sensor** in Halo.
+* **If it's ever wrong,** tap the door sensor tile on the Home screen and choose **It's Open** or **It's Closed**. This only corrects what Halo shows: no signal is sent to the opener, no alert goes out, and it doesn't count as a trip for the car. The next real report from the sensor takes over again.
 * Garages get cold, and the sensor's coin cell fades faster in winter. Halo shows its battery level.
 
 ### Where to put the motion sensor (car presence)
@@ -222,7 +226,37 @@ It's an estimate, so you can tap **Car** in the app to correct it at any time. F
 * Keep it away from heater vents, the water heater and the opener motor.
 * If you usually take more than 2 minutes to get in and leave, raise `car_detection.before_open_sec`.
 
-> For a definite yes/no rather than an estimate, a ceiling-mounted distance sensor above the car's hood is the reliable option (an HC-SR04 ultrasonic or VL53L1X laser sensor wired to the Pi). Halo's `/api/car` endpoint is ready for it.
+> For a definite answer instead of an estimate, use the [car height & width sensors](#car-height--width-sensors) below. When they're working, Halo uses them and ignores the motion estimate.
+
+### Car height & width sensors
+A motion sensor can't measure anything. It only notices movement and body heat. To know whether a car is parked, Halo uses **distance sensors on the ceiling, pointing straight down** at the parking spot:
+
+* Each sensor measures how far away the first thing below it is. **Height = distance to the empty floor - current reading.**
+* **A car is tall _and_ wide.** Two sensors about **1.2 m (4 ft) apart along the car** both see something tall at the same time. Halo combines them into an estimated width (the gap between the sensors plus each beam's footprint).
+* **A person is narrow** (about 50 cm), so they can only be under one sensor at a time. A 1.75 m person standing under one sensor measures roughly **35 cm wide: not a car**. A parked car measures about **1.5 m tall × 1.8 m wide: car**.
+* The reading must hold steady for **20 seconds** before the car status changes, so walking under the sensors never counts.
+
+**Parts (per sensor):** an HC-SR04 ultrasonic module (a few dollars), a 1 kΩ and a 2 kΩ resistor, and jumper wire.
+
+| HC-SR04 pin | "front" sensor | "back" sensor | Notes |
+| :--- | :--- | :--- | :--- |
+| VCC | 5 V (pin 2) | 5 V (pin 4) | The module needs 5 V |
+| Trig | GPIO 17 (pin 11) | GPIO 22 (pin 15) | |
+| Echo | GPIO 27 (pin 13) **through a divider** | GPIO 23 (pin 16) **through a divider** | Echo outputs 5 V; the Pi's pins take **3.3 V max** |
+| GND | GND (pin 9) | GND (pin 14) | |
+
+**Voltage divider for Echo:** Echo → 1 kΩ → GPIO pin, and GPIO pin → 2 kΩ → GND. That brings the 5 V pulse down to 3.3 V. Skipping it can damage the Pi. These pins don't clash with the CC1101 (SPI on GPIO 8–11, optional GDO0 on GPIO 24).
+
+**Mounting:**
+1. Put both sensors on the ceiling over the **centre line of where the car parks**, 1.2 m apart front to back: one over the hood, one over the roof or windshield.
+2. Keep them **behind where the open garage door rests** on its rails. The open door would otherwise sit right under them.
+3. Point them straight down, with nothing else (shelves, a bike lift) in the beam.
+
+**Setup in the app:** **Device → Car Height & Width Sensors** → turn on **Use Distance Sensors**. Move the car out, tap **Calibrate Empty Garage**, then park. You'll see e.g. *Under the Sensors: Car, 1.45 m tall × 1.83 m wide*. If your car is unusually narrow or the sensors are closer together, change **A Car Is Wider Than** (80 cm / 1 m / 1.3 m).
+
+**With only one sensor,** Halo can measure height but not width. The app warns you, and a tall person standing still under it for 20 s could look like a car.
+
+**Other sensors:** anything that can make an HTTP request can feed Halo, such as an ESPHome board or a script for a VL53L1X laser sensor. Set that sensor's `driver` to `api` and send `POST /api/distance {"id": "front", "distance_cm": 182}`. A **multi-zone** sensor such as the VL53L5CX (8×8 grid) can send its whole grid as `{"id": "grid", "zones": [...64 values in cm...]}` with `driver: "grid"`. Halo then counts a car when its roof fills most of the view (more than 60% of the zones), while a person's head and shoulders fill only a small part.
 
 ```bash
 # Mosquitto broker
@@ -497,7 +531,11 @@ Global flags: `--config`, `--spi-bus`, `--spi-device`, `--mode fifo|async`, `--g
 | `/api/bridge` | POST | `{"watchdog": true}` | Turn bridge auto-reconnect on or off |
 | `/api/sensor` | POST | `{"state": "open"}` or `{"contact": false}` | Ground-truth door state |
 | `/api/motion` | POST | `{"motion": true}` | Report car-bay motion from any integration |
-| `/api/car` | POST | `{"present": true}` | Set car presence (manual correction or a distance sensor) |
+| `/api/car` | POST | `{"present": true}` | Correct car presence by hand |
+| `/api/door/correct` | POST | `{"state": "closed"}` | Correct the door state by hand (no signal sent, no alert) |
+| `/api/distance` | POST | `{"id": "front", "distance_cm": 182}` | A reading from a distance sensor (or `zones` for a grid sensor) |
+| `/api/distance/calibrate` | POST | — | Remember the current readings as the empty floor |
+| `/api/distance/settings` | POST | `{"enabled": true, "min_width_cm": 100}` | Distance sensor settings |
 | `/api/sensor-name` | POST | `{"sensor": "door", "name": "Side Door"}` | Rename the `door` or `motion` sensor (1–32 characters) |
 | `/api/lock` | POST | `{"locked": true}` | Set the remote lock (omit `locked` to toggle) |
 | `/api/pair` | POST | `{"repeats": 16}` | Door pairing bursts |

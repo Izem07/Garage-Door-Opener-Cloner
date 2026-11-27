@@ -14,6 +14,32 @@
         "before_open_sec": 120,
         "after_close_sec": 120
     },
+    "distance_sensor": {
+        "enabled": false,
+        "min_height_cm": 50,
+        "min_width_cm": 100,
+        "stable_seconds": 20,
+        "sensors": [
+            {
+                "id": "front",
+                "driver": "hcsr04",
+                "trigger_pin": 17,
+                "echo_pin": 27,
+                "x_cm": 0,
+                "y_cm": 0,
+                "floor_cm": null
+            },
+            {
+                "id": "back",
+                "driver": "hcsr04",
+                "trigger_pin": 22,
+                "echo_pin": 23,
+                "x_cm": 120,
+                "y_cm": 0,
+                "floor_cm": null
+            }
+        ]
+    },
     "mqtt": {
         "enabled": true,
         "broker": "127.0.0.1",

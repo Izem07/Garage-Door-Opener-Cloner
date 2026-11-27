@@ -26,6 +26,7 @@ import urllib.error
 import urllib.request
 import logging
 import re
+import math
 import shutil
 import subprocess
 import threading
@@ -258,6 +259,24 @@ def set_door_state(is_open: bool):
     notify_change()
 
 
+_correction = {"at": 0.0}
+
+
+def correction_edge(now: float = None) -> bool:
+    """True if a door open/close change was caused by a manual correction (not real movement)."""
+    return (now or time.time()) - _correction["at"] < 3.0
+
+
+def correct_door(is_open: bool):
+    """The user says the sensor/Halo is wrong. Fix what Halo shows; send nothing to the opener."""
+    with state_lock:
+        before = door_info["state"]
+        door_info["sensor"]["state"] = "open" if is_open else "closed"
+    _correction["at"] = time.time()
+    set_door_state(is_open)
+    add_log("Door", f"Corrected in Halo: {before.lower()} → {'open' if is_open else 'closed'} (no signal sent)", True)
+
+
 def start_door_travel() -> str:
     """Flip the door direction and start simulated travel. Returns the new state."""
     global _travel_id
@@ -421,6 +440,221 @@ def rename_sensor(which: str, name: str):
     add_log("Sensor", f"Renamed “{old}” to “{name}”", True)
 
 
+# Ceiling-mounted distance sensors pointing down at the parking spot. Each one
+# measures how far away the first thing below it is; height = (distance to the
+# empty floor) - (current reading). A car is tall AND wide: it sits under two
+# sensors spaced ~1.2 m apart at the same time. A person (~0.5 m across) can be
+# under only one, so a tall person is never mistaken for a car. A multi-zone
+# sensor (e.g. VL53L5CX 8x8) can also send its whole grid to measure width directly.
+# (A Wyze motion sensor can't measure height or width: it only sees movement.)
+DIST = {"enabled": False, "interval": 2.0, "max_cm": 400.0, "beam_deg": 15.0,
+        "min_height_cm": 50.0, "min_width_cm": 100.0, "stable_seconds": 20.0,
+        "sensors": [
+            {"id": "front", "driver": "hcsr04", "trigger_pin": 17, "echo_pin": 27, "x_cm": 0, "y_cm": 0, "floor_cm": None},
+            {"id": "back", "driver": "hcsr04", "trigger_pin": 22, "echo_pin": 23, "x_cm": 120, "y_cm": 0, "floor_cm": None},
+        ]}
+DIST_INFO = {"status": "off", "present": None, "height_cm": None, "width_cm": None, "width_measurable": None,
+             "readings": {}, "error": None, "updated_at": None, "since": None, "committed": None}
+_dist_state = {}                     # sensor id -> {"window": deque, "median", "zones", "at"}
+_dist_lock = threading.Lock()
+GRID_CAR_COVERAGE = 0.6             # share of a grid's zones a car roof fills (a person: ~0.1-0.3)
+MIN_VALID_CM = 15                    # closer than this = something touching the sensor (e.g. the open door)
+STALE_SEC = 15
+
+
+def _dist_sensor(sid):
+    return next((x for x in DIST["sensors"] if x["id"] == sid), None)
+
+
+def ingest_distance(sensor_id: str, distance_cm=None, zones=None):
+    """A reading from one sensor: distance_cm, or a square grid of zone distances (cm)."""
+    cfg = _dist_sensor(sensor_id)
+    if cfg is None:
+        raise ValueError(f"Unknown distance sensor '{sensor_id}'")
+    now = time.time()
+    with _dist_lock:
+        st = _dist_state.setdefault(sensor_id, {"window": deque(maxlen=5), "median": None, "zones": None, "at": 0})
+        if zones is not None:
+            z = [float(v) for v in zones]
+            n = int(round(math.sqrt(len(z))))
+            if n * n != len(z) or n < 2:
+                raise ValueError("zones must be a square grid, e.g. 16 or 64 values")
+            st.update(zones=z, at=now)
+        else:
+            d = float(distance_cm)
+            if d < MIN_VALID_CM or d > DIST["max_cm"] * 1.05:
+                st.update(median=None, at=now, problem="blocked" if d < MIN_VALID_CM else "no echo")
+            else:
+                st["window"].append(d)
+                st.update(median=sorted(st["window"])[len(st["window"]) // 2], at=now, problem=None)
+    return _evaluate_distance()
+
+
+def _tall_points():
+    """Points (x, y, footprint radius, height) where something taller than min_height is.
+    Returns (points, sensors_ok, width_measurable, readings, grid_coverage)."""
+    now = time.time()
+    pts, readings, ok, multi, coverage = [], {}, 0, False, 0.0
+    beam = math.tan(math.radians(DIST["beam_deg"]))
+    for cfg in DIST["sensors"]:
+        st = _dist_state.get(cfg["id"])
+        if not st or now - st["at"] > STALE_SEC:
+            readings[cfg["id"]] = {"status": "no data"}
+            continue
+        if cfg.get("driver") == "grid" or st.get("zones"):
+            z, floors = st.get("zones"), cfg.get("floor_zones")
+            if not z or not floors or len(floors) != len(z):
+                readings[cfg["id"]] = {"status": "needs calibration"}
+                continue
+            n = int(round(math.sqrt(len(z))))
+            fov = math.radians(cfg.get("fov_deg", 45.0))
+            tall = 0
+            for i, d in enumerate(z):
+                if d < MIN_VALID_CM:
+                    continue
+                h = floors[i] - d
+                if h >= DIST["min_height_cm"]:
+                    r, c = divmod(i, n)
+                    ax, ay = ((c + 0.5) / n - 0.5) * fov, ((r + 0.5) / n - 0.5) * fov
+                    pts.append((cfg["x_cm"] + d * math.tan(ax), cfg["y_cm"] + d * math.tan(ay),
+                                d * math.tan(fov / n / 2), h))
+                    tall += 1
+            ok += 1
+            multi = True
+            coverage = max(coverage, tall / len(z))
+            readings[cfg["id"]] = {"status": "ok", "tall_zones": tall, "zones": len(z)}
+            continue
+        if st.get("problem"):
+            readings[cfg["id"]] = {"status": st["problem"]}
+            continue
+        if not cfg.get("floor_cm"):
+            readings[cfg["id"]] = {"status": "needs calibration", "distance_cm": round(st["median"], 1)}
+            continue
+        d = st["median"]
+        h = max(0.0, cfg["floor_cm"] - d)
+        tall = h >= DIST["min_height_cm"]
+        if tall:
+            pts.append((cfg["x_cm"], cfg["y_cm"], d * beam, h))
+        ok += 1
+        readings[cfg["id"]] = {"status": "ok", "distance_cm": round(d, 1), "height_cm": round(h, 1), "tall": tall}
+    point_sensors = sum(1 for r in readings.values() if r.get("status") == "ok" and "tall" in r)
+    return pts, ok, multi or point_sensors >= 2, readings, coverage
+
+
+def _object_width(pts) -> float:
+    """Widest extent of the tall points, including each beam's footprint."""
+    best = 0.0
+    for i, (x1, y1, r1, _) in enumerate(pts):
+        best = max(best, 2 * r1)
+        for x2, y2, r2, _ in pts[i + 1:]:
+            best = max(best, math.hypot(x2 - x1, y2 - y1) + r1 + r2)
+    return best
+
+
+def _evaluate_distance():
+    now = time.time()
+    with _dist_lock:
+        pts, ok, measurable, readings, coverage = _tall_points()
+        DIST_INFO.update(readings=readings, updated_at=_now_iso(), width_measurable=measurable if ok else None)
+        if not ok:
+            DIST_INFO.update(status="needs calibration" if any(r["status"] == "needs calibration" for r in readings.values())
+                             else "no data", present=None, height_cm=None, width_cm=None)
+            notify_change()
+            return None
+        height = max((p[3] for p in pts), default=0.0)
+        width = _object_width(pts) if pts else 0.0
+        if not pts:
+            present = False
+        elif measurable:
+            # Tall AND wide = car; tall but narrow = person. A grid sensor's view is only
+            # ~0.8 x distance wide, so for grids "fills most of the view" also counts as wide.
+            present = width >= DIST["min_width_cm"] or coverage >= GRID_CAR_COVERAGE
+        else:
+            present = True                               # one sensor: height only (app warns)
+        if present != DIST_INFO["present"]:
+            DIST_INFO["since"] = now                     # candidate; must hold steady
+        DIST_INFO.update(status="ok", present=present, height_cm=round(height, 1) if pts else 0.0,
+                         width_cm=round(width, 1) if pts else 0.0)
+        commit = now - DIST_INFO["since"] >= DIST["stable_seconds"] and present != DIST_INFO["committed"]
+        if commit:
+            DIST_INFO["committed"] = present
+    if commit:
+        if present:
+            set_car("present", "distance",
+                    f"Object {_fmt_len(height)} tall and {_fmt_len(width)} wide under the sensors")
+        elif pts:
+            set_car("away", "distance", f"Only a narrow object ({_fmt_len(width)} wide), probably a person")
+        else:
+            set_car("away", "distance", "Sensors see the empty floor")
+    else:
+        notify_change()
+    return present
+
+
+def _fmt_len(cm: float) -> str:
+    inches = cm / 2.54
+    return f"{cm / 100:.2f} m ({int(inches // 12)} ft {int(round(inches % 12))} in)"
+
+
+def calibrate_distance():
+    """Remember the current readings as the empty floor (garage must be empty)."""
+    done = []
+    with _dist_lock:
+        for cfg in DIST["sensors"]:
+            st = _dist_state.get(cfg["id"])
+            if not st or time.time() - st["at"] > STALE_SEC:
+                continue
+            if st.get("zones"):
+                cfg["floor_zones"] = [round(v, 1) for v in st["zones"]]
+                done.append(cfg["id"])
+            elif st.get("median"):
+                cfg["floor_cm"] = round(st["median"], 1)
+                done.append(cfg["id"])
+        DIST_INFO.update(present=None, since=time.time(), committed=None)
+    if not done:
+        raise RuntimeError("No distance readings yet. Check the sensors are connected.")
+    save_distance_settings()
+    add_log("Car", f"Distance sensors calibrated on the empty floor ({', '.join(done)})", True)
+    return done
+
+
+def save_distance_settings():
+    if CTX["remote_mgr"]:
+        CTX["remote_mgr"].update(distance_sensor=json.loads(json.dumps(DIST)))
+
+
+def _distance_reader():
+    """Reads HC-SR04 ultrasonic sensors on the Pi's GPIO (via gpiozero), one at a time
+    so their pings don't interfere."""
+    devices = []
+    for cfg in DIST["sensors"]:
+        if cfg.get("driver", "hcsr04") != "hcsr04":
+            continue                                     # 'api'/'grid' sensors push to /api/distance
+        try:
+            from gpiozero import DistanceSensor
+            devices.append((cfg["id"], DistanceSensor(echo=int(cfg["echo_pin"]), trigger=int(cfg["trigger_pin"]),
+                                                      max_distance=DIST["max_cm"] / 100.0, queue_len=1)))
+        except Exception as e:
+            DIST_INFO.update(status="error", error=f"Can't open sensor '{cfg['id']}' on GPIO "
+                                                   f"{cfg.get('trigger_pin')}/{cfg.get('echo_pin')}: {e}")
+            notify_change()
+    while DIST["enabled"] and devices:
+        for sid, dev in devices:
+            try:
+                ingest_distance(sid, dev.distance * 100.0)
+            except Exception as e:
+                DIST_INFO.update(error=str(e)[:160])
+            time.sleep(0.08)                             # let echoes die down before the next ping
+        time.sleep(DIST["interval"])
+
+
+def distance_public() -> dict:
+    return {**{k: DIST[k] for k in ("enabled", "min_height_cm", "min_width_cm", "stable_seconds")},
+            "sensor_count": len(DIST["sensors"]),
+            **{k: DIST_INFO.get(k) for k in ("status", "present", "height_cm", "width_cm", "width_measurable",
+                                             "readings", "error", "updated_at")}}
+
+
 def set_car(state: str, source: str, reason: str):
     with state_lock:
         car = door_info["car"]
@@ -446,6 +680,8 @@ def estimate_car(opened: float, closed: float, now: float = None):
     """
     if not SENSORS["car"] and not _motion_times:
         return None                                   # no motion sensor in use
+    if DIST["enabled"] and DIST_INFO["status"] == "ok":
+        return None                                   # the distance sensors know for sure
     end = min(now or time.time(), closed + CAR_POST_SEC)
     pre = _motion_between(opened - CAR_PRE_SEC, opened - 0.001)
     during = _motion_between(opened, closed)
@@ -470,6 +706,9 @@ def _car_watcher():
         with state_lock:
             closed = door_info["state"] == "CLOSED"
         now = time.time()
+        if prev_closed != closed and correction_edge(now):  # manual correction, not a real trip
+            prev_closed, opened_at = closed, None
+            continue
         if prev_closed and not closed:                      # door started opening
             if pending:                                     # reopened before window ended
                 estimate_car(pending[0], pending[1], now)
@@ -1345,6 +1584,10 @@ def _door_notifier():
         if prev_closed is None:                                   # startup: no alert
             prev_closed, opened_at = closed, (None if closed else now)
             continue
+        if prev_closed != closed and correction_edge(now):        # manual correction: no alert
+            prev_closed, reminders = closed, 0
+            opened_at = None if closed else now
+            continue
         if prev_closed and not closed:
             opened_at, reminders = now, 0
             src = _last_door_cmd["source"] if now - _last_door_cmd["at"] < 30 else (
@@ -1483,6 +1726,10 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
             "/api/notifications": self.handle_notifications,
             "/api/notifications/test": self.handle_notifications_test,
             "/api/settings": self.handle_settings,
+            "/api/door/correct": self.handle_door_correct,
+            "/api/distance": self.handle_distance,
+            "/api/distance/calibrate": self.handle_distance_calibrate,
+            "/api/distance/settings": self.handle_distance_settings,
             "/api/sensors/pair": self.handle_sensors_pair,
             "/api/sensors/assign": self.handle_sensors_assign,
             "/api/sensors/remove": self.handle_sensors_remove,
@@ -1619,6 +1866,59 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
         if err:
             return self.send_json({"success": False, "error": err}, 502)
         self.send_json({"success": True, "message": "Delivered to ntfy"})
+
+    def handle_door_correct(self, data: dict):
+        st = str(data.get("state", "")).lower()
+        if st not in ("open", "closed"):
+            return self.send_json({"success": False, "error": "Send {'state': 'open'|'closed'}"}, 400)
+        correct_door(st == "open")
+        self.send_json({"success": True, "door_state": door_info["state"]})
+
+    def handle_distance(self, data: dict):
+        """Readings from any distance sensor: {'id':'front','distance_cm':180} or a grid
+        {'id':'grid','zones':[...64 values in cm...]}."""
+        sid = str(data.get("id") or (DIST["sensors"][0]["id"] if DIST["sensors"] else ""))
+        try:
+            if data.get("zones") is not None:
+                present = ingest_distance(sid, zones=data["zones"])
+            else:
+                val = data.get("distance_cm")
+                if val is None and data.get("distance_m") is not None:
+                    val = float(data["distance_m"]) * 100
+                if val is None:
+                    raise ValueError("Send {'id': 'front', 'distance_cm': 123} or {'id': 'grid', 'zones': [...]}")
+                present = ingest_distance(sid, distance_cm=val)
+        except (TypeError, ValueError) as e:
+            return self.send_json({"success": False, "error": str(e)}, 400)
+        self.send_json({"success": True, "present": present, "distance": distance_public()})
+
+    def handle_distance_calibrate(self, data: dict):
+        try:
+            done = calibrate_distance()
+        except RuntimeError as e:
+            return self.send_json({"success": False, "error": str(e)}, 409)
+        self.send_json({"success": True, "calibrated": done})
+
+    def handle_distance_settings(self, data: dict):
+        try:
+            if isinstance(data.get("enabled"), bool):
+                was = DIST["enabled"]
+                DIST["enabled"] = data["enabled"]
+                if DIST["enabled"] and not was:
+                    threading.Thread(target=_distance_reader, daemon=True).start()
+                if not DIST["enabled"]:
+                    DIST_INFO.update(status="off", present=None, committed=None)
+            for k, lo, hi in (("min_height_cm", 10, 250), ("min_width_cm", 30, 400), ("stable_seconds", 0, 600)):
+                if data.get(k) is not None:
+                    DIST[k] = max(lo, min(hi, float(data[k])))
+                    DIST_INFO.update(present=None, since=time.time())
+            if isinstance(data.get("sensors"), list):
+                DIST["sensors"] = [dict(x) for x in data["sensors"] if isinstance(x, dict) and x.get("id")]
+        except (TypeError, ValueError) as e:
+            return self.send_json({"success": False, "error": str(e)}, 400)
+        save_distance_settings()
+        notify_change()
+        self.send_json({"success": True, "distance": distance_public()})
 
     def handle_settings(self, data: dict):
         if "timezone" in data:
@@ -1801,6 +2101,7 @@ def build_status(remote_mgr: RemoteManager, radio: CC1101) -> dict:
         "light": {"on": d["light_on"], "estimated": True, "auto_off_remaining_sec": remaining},
         "notifications": notify_public(),
         "auto_close": auto_close_public(),
+        "distance": distance_public(),
         "sensors": inventory_list(),
         "pairing": {"active": PAIRING["until"] > time.time(), "until": PAIRING["until"]},
         "bridge": {**BRIDGE_INFO, "dongles": dict(BRIDGE_INFO["dongles"]), "watchdog": BRIDGE["watchdog"]},
@@ -1862,6 +2163,9 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
     BRIDGE.update({k: v for k, v in (remote_mgr.config.get("bridge") or {}).items() if k in BRIDGE or k == "interval"})
     AUTO_CLOSE.update({k: v for k, v in (remote_mgr.config.get("auto_close") or {}).items() if k in AUTO_CLOSE})
     threading.Thread(target=_bridge_watchdog, daemon=True).start()
+    DIST.update({k: v for k, v in (remote_mgr.config.get("distance_sensor") or {}).items() if k in DIST})
+    if DIST["enabled"]:
+        threading.Thread(target=_distance_reader, daemon=True).start()
     threading.Thread(target=_auto_close_worker, daemon=True).start()
     SENSORS["door"] = _norm_mac(remote_mgr.config.get("sensor_mac"))
     SENSORS["car"] = _norm_mac(remote_mgr.config.get("car_sensor_mac"))
