@@ -109,6 +109,17 @@ Radio State       : 0x01 (0x01 = IDLE)
 ============================================================
 ```
 
+You can run the same check from the app at any time: **Device → Radio → Check Radio Now**. It reads the CC1101 over SPI without changing anything, and reports plainly:
+
+| Check | Healthy | If not |
+| :--- | :--- | :--- |
+| SPI connection | Chip is answering | Reads all 0x00 or 0xFF: check 3.3 V, GND and the four SPI wires |
+| Chip identity | Part 0x00, version 0x14 (or 0x04 on older chips) | Not a recognised CC1101 |
+| Frequency | Tuned to 315.000 MHz | Shows what it's tuned to, e.g. 433.920 MHz |
+| State | Idle (or transmitting during a press) | Shows the stuck state, e.g. *Receive overflow*; restart Halo |
+
+Halo also runs this check every time it starts.
+
 ---
 
 ## The Halo App
@@ -122,8 +133,8 @@ Open `http://<PI_IP>:8080` on any phone, tablet or computer on your network. Wit
 | Tab | What's there |
 | :--- | :--- |
 | **Home** | Door state and position, one-tap Open/Close, Light / Remote Lock / Contact / Car tiles, recent events |
-| **Activity** | Last 20 events with source and result |
-| **Device** | Remote ID and rolling code, CC1101 registers, door and motion sensor battery and signal, pairing guides, rolling-code resync, RF test, new remote ID, appearance |
+| **Activity** | Last 20 events grouped by day, with source and result. **Clear** removes them all |
+| **Device** | Remote ID and rolling code, a **radio health check** (Check Radio Now), CC1101 registers, door and motion sensor battery and signal, pairing guides, rolling-code resync, RF test, new remote ID, appearance |
 
 **Add to iPhone Home Screen:** open the URL in Safari → **Share** → **Add to Home Screen**. Halo then launches full screen with its own icon, like a native app.
 
@@ -135,6 +146,7 @@ Halo keeps the rolling code in this file. Optional keys:
 | `repeats_per_press` | `8` | Bursts per button press |
 | `sensor_mac` | — | Door contact sensor MAC. When set, only this sensor can change the door state |
 | `car_sensor_mac` | — | Motion sensor MAC used for car presence |
+| `clock_24h` | `false` | 24-hour time in the app and alerts (set from the app) |
 | `timezone` | `America/New_York` | Time zone for the app, activity and alerts (any IANA name; set from the app) |
 | `auto_close.enabled` / `minutes` | off / `10` | Close the door if left open (set from the app) |
 | `bridge.watchdog` / `container` | on / `wyzesense2mqtt` | Wyze bridge auto-reconnect |
@@ -408,7 +420,7 @@ Halo can notify your phone when the **garage door** opens, closes, or is left op
 | **Garage Door Closing Soon** | *The garage door will close automatically in 60 seconds. Select Keep Open to leave it open.* (Auto-close only) |
 | **Garage Door Closed Automatically** | *Halo closed the garage door at 8:05 PM because it was left open. It was open for 10 minutes.* |
 
-Alerts are plain text: no emoji, icons or tags.
+Alerts are plain, professional text: no emoji, no tags, and no priority markers (ntfy shows icons for high-priority alerts, so every alert is sent at normal priority).
 
 You can switch "When Opened" and "When Closed" off and keep only the left-open reminder.
 
@@ -436,6 +448,8 @@ You can switch "When Opened" and "When Closed" off and keep only the left-open r
 * Halo stores every event in UTC and shows it in your zone using the standard IANA time-zone database. **Daylight saving is automatic:** on spring-forward night 1:59 AM EST is followed by 3:00 AM EDT, and in the fall 1:30 AM happens twice (EDT, then EST). Each event still appears in the right order and under the right day.
 * The activity list is grouped by day (**Today**, **Yesterday**, then dates) in your zone. A 10:30 PM event stays under *today* even though it's already tomorrow in UTC.
 * Timers (auto-close, left-open reminders, light auto-off) count real elapsed time, so a DST change never makes them early or late. A door open from 1:50 to 3:10 AM on spring-forward night counts as 20 minutes.
+* **24-hour time:** turn on **Device → Date & Time → 24-Hour Time** to show 19:42 instead of 7:42 PM, in the app and in alerts.
+* "Last Motion" and "Last Seen" show the exact time (to the second) and count up live: *Just now*, *45 sec ago*, *3 min ago*.
 * Raspberry Pi OS includes the time-zone database. If the app says it's missing, run `sudo apt install tzdata` (or `pip install tzdata` on Windows).
 
 ---
@@ -521,7 +535,9 @@ Global flags: `--config`, `--spi-bus`, `--spi-device`, `--mode fifo|async`, `--g
 | `/api/light/state` | POST | `{"on": true}` | Report light state from an external sensor (no RF) |
 | `/api/notifications` | POST | `{"enabled": true, "left_open_minutes": 10}` | Door alert settings (also `on_open`, `on_close`, `server`, `topic`) |
 | `/api/notifications/test` | POST | — | Send a test alert |
-| `/api/settings` | POST | `{"timezone": "America/Chicago"}` | Change the time zone |
+| `/api/settings` | POST | `{"timezone": "America/Chicago", "clock_24h": true}` | Time zone and 24-hour time |
+| `/api/radio/check` | POST | — | Read the CC1101 (identity, frequency, state) and report whether it's healthy |
+| `/api/logs/clear` | POST | — | Clear the activity list |
 | `/api/auto-close` | POST | `{"enabled": true, "minutes": 10}` | Auto-close settings |
 | `/api/auto-close/hold` | POST | — | Keep the door open until it next closes |
 | `/api/sensors/pair` | POST | `{"seconds": 60}` | Put the Wyze bridge in pairing mode |

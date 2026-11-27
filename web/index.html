@@ -353,7 +353,10 @@ button.row:active,a.row:active{background:var(--fill)}
 
   <!-- ACTIVITY -->
   <main class="view" id="view-activity" data-title="Activity">
-    <div class="large"><h1>Activity</h1><p>Last 20 events on this module</p></div>
+    <div class="large" style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px">
+      <div><h1>Activity</h1><p>Last 20 events on this module</p></div>
+      <button onclick="clearActivity()" style="color:var(--blue);font-size:17px;padding-bottom:4px">Clear</button>
+    </div>
     <div id="activity"><div class="group-h">Today</div><div class="list"><div class="empty">No activity yet</div></div></div>
   </main>
 
@@ -372,9 +375,13 @@ button.row:active,a.row:active{background:var(--fill)}
 
     <div class="group-h" id="radioSec">Radio</div>
     <div class="list">
+      <div class="row"><span class="lbl">Health<small id="rSummary">Not checked yet</small></span><span class="val" id="rHealth">—</span></div>
       <div class="row"><span class="lbl">Transceiver</span><span class="val" id="dRadio">—</span></div>
-      <div class="row"><span class="lbl">Part / Version</span><span class="val mono" id="dChip">—</span></div>
-      <div class="row"><span class="lbl">MARC State</span><span class="val mono" id="dMarc">—</span></div>
+      <div class="row"><span class="lbl">Chip</span><span class="val" id="dChip">—</span></div>
+      <div class="row"><span class="lbl">Frequency</span><span class="val" id="rFreq">—</span></div>
+      <div class="row"><span class="lbl">State</span><span class="val" id="dMarc">—</span></div>
+      <div id="rChecks"></div>
+      <button class="row tint" onclick="checkRadio()"><span class="lbl">Check Radio Now<small id="rChecked">Reads the CC1101 over SPI without changing anything</small></span></button>
     </div>
 
     <div class="group-h" id="sensorSec">Contact Sensor</div>
@@ -467,6 +474,7 @@ button.row:active,a.row:active{background:var(--fill)}
     <div class="list">
       <button class="row" onclick="openTzSheet()"><span class="lbl">Time Zone</span><span class="val" id="tzVal">New York</span><svg class="i chev"><use href="#i-chev"/></svg></button>
       <div class="row"><span class="lbl">Local Time</span><span class="val" id="tzNow">—</span></div>
+      <div class="row"><span class="lbl">24-Hour Time<small>Show 19:42 instead of 7:42 PM, in the app and in alerts</small></span><label class="switch"><input type="checkbox" id="h24" onchange="set24h(this.checked)"></label></div>
     </div>
     <div class="group-f" id="tzNote">Daylight saving time is applied automatically.</div>
 
@@ -591,7 +599,11 @@ function fmtTz(ms, opts, zone = TZ()) {
   try { return new Intl.DateTimeFormat(undefined, { timeZone: zone, ...opts }).format(new Date(ms)); }
   catch (e) { return new Intl.DateTimeFormat(undefined, opts).format(new Date(ms)); }
 }
-const clock = ms => fmtTz(ms, { hour: "numeric", minute: "2-digit" });
+const H24 = () => !!(S && S.timezone && S.timezone.clock_24h);
+const hourOpts = () => H24() ? { hour: "2-digit", minute: "2-digit", hourCycle: "h23" } : { hour: "numeric", minute: "2-digit", hour12: true };
+const clock = ms => fmtTz(ms, hourOpts());
+const clockSec = ms => fmtTz(ms, { ...hourOpts(), second: "2-digit" });
+const nowText = () => fmtTz(Date.now(), { weekday: "short", ...hourOpts(), timeZoneName: "short" });
 function dayKey(ms) {                         // YYYY-MM-DD in the chosen zone
   const p = {}; new Intl.DateTimeFormat("en-CA", { timeZone: TZ(), year: "numeric", month: "2-digit", day: "2-digit" })
     .formatToParts(new Date(ms)).forEach(x => p[x.type] = x.value);
@@ -614,7 +626,11 @@ function zoneLabel(z) {
 }
 const ago = iso => {
   const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
-  return s < 60 ? "Just now" : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : new Date(iso).toLocaleDateString();
+  if (s < 10) return "Just now";
+  if (s < 60) return `${s} sec ago`;
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) { const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60); return m ? `${h} h ${m} min ago` : `${h} h ago`; }
+  return dayLabel(Date.parse(iso));
 };
 const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
@@ -864,6 +880,28 @@ function chooseTz(z) {
   closeAll();
   act(() => api("/api/settings", { timezone: z }), r => `Time zone: ${zoneLabel(z).city} (${r.timezone.abbr})`);
 }
+function refreshTimes() {
+  if (!S) return;
+  const mo = S.motion || {}, sen = S.sensor || {};
+  const lm = mo.last_motion ? Date.parse(mo.last_motion) : NaN;
+  put("mLast", "text", isNaN(lm) ? "Never" : `${clockSec(lm)} · ${ago(mo.last_motion)}`);
+  const ls = sen.last_seen ? Date.parse(sen.last_seen) : NaN;
+  put("sSeen", "text", !sen.last_seen ? "Never" : isNaN(ls) ? sen.last_seen : `${clockSec(ls)} · ${ago(sen.last_seen)}`);
+  const rc = S.hardware && S.hardware.check;
+  if (rc && rc.checked_at) put("rChecked", "text", `Last checked ${clock(Date.parse(rc.checked_at))} (${ago(rc.checked_at)})`);
+  // sensor list shows "x min ago": redraw it every 30 s
+  const slot = Math.floor(Date.now() / 30000);
+  if (slot !== cache.get("timeslot") && S.sensors) {
+    cache.set("timeslot", slot);
+    $("sensorList").innerHTML = S.sensors.map(e => sensorRow(e, `sensorSheet('${e.mac}')`)).join("")
+      || '<div class="empty">No sensors yet. Tap Add Sensor.</div>';
+  }
+}
+const checkRadio = () => act(() => api("/api/radio/check"), r => r.radio.summary);
+const set24h = on => act(() => api("/api/settings", { clock_24h: on }), on ? "24-hour time on" : "24-hour time off");
+const clearActivity = () => confirmAction("Clear all activity?",
+  "This removes every event from the activity list. It can't be undone.", "Clear Activity",
+  () => act(() => api("/api/logs/clear"), "Activity cleared"));
 const confirmReset = () => confirmAction("Generate a new remote ID?",
   "The opener will stop responding until you pair Halo again.", "Generate New ID",
   () => act(() => api("/api/reset-remote", { start_counter: 1000 }), "New remote ID. Pair it now."));
@@ -873,7 +911,7 @@ const EVENT_STYLE = {
   Door: ["i-garage", "var(--indigo)"], Light: ["i-bulb", "var(--yellow)", "#000"], Sensor: ["i-sensor", "var(--green)"],
   "Remote Lock": ["i-lock", "var(--blue)"], "Pair Door": ["i-link", "var(--indigo)"], "Pair Light": ["i-link", "var(--yellow)", "#000"],
   "RF Test": ["i-wave", "var(--orange)"], "Rolling Code": ["i-sync", "var(--blue)"], "Remote ID": ["i-key", "var(--red)"],
-  Halo: ["i-halo", "var(--gray)"], Notifications: ["i-bell", "var(--red)"],
+  Halo: ["i-halo", "var(--gray)"], Notifications: ["i-bell", "var(--red)"], Radio: ["i-antenna", "var(--orange)"],
   "Wyze Bridge": ["i-link", "var(--green)"], "Auto-Close": ["i-garage", "var(--orange)"], Car: ["i-car", "var(--teal)"],
 };
 function renderActivity(logs) {
@@ -938,15 +976,25 @@ function render(d) {
   put("sBatt", "text", sen.battery != null ? sen.battery + "%" : "—");
   put("sBatt", "class", "val " + (sen.battery != null && sen.battery < 20 ? "bad" : ""));
   put("sRssi", "text", sen.signal_strength != null ? sen.signal_strength + " dBm" : "—");
-  const seenMs = sen.last_seen ? Date.parse(sen.last_seen) : NaN;
-  put("sSeen", "text", !sen.last_seen ? "Never" : isNaN(seenMs) ? sen.last_seen : `${clock(seenMs)} · ${ago(sen.last_seen)}`);
+  refreshTimes();
 
   // Radio
   const sim = hw.is_simulation;
   put("dRadio", "text", sim ? "Simulation (no CC1101)" : "TI CC1101 · SPI0");
   put("dRadio", "class", "val " + (sim ? "warn" : "ok"));
-  put("dChip", "text", `${hw.part_number} / ${hw.version}`);
-  put("dMarc", "text", hw.state);
+  const rc = hw.check || {};
+  put("dChip", "text", sim ? "—" : `Part ${hw.part_number}, version ${hw.version}${hw.version === "0x14" ? " (genuine)" : ""}`);
+  put("dMarc", "text", sim ? "—" : `${hw.state_name || hw.state}`);
+  put("rFreq", "text", rc.frequency_mhz ? `${rc.frequency_mhz.toFixed(3)} MHz` : `${Number(d.frequency_mhz).toFixed(2)} MHz`);
+  put("rHealth", "text", rc.ok === true ? "Healthy" : rc.ok === false ? (sim ? "Simulation" : "Problem") : "Unknown");
+  put("rHealth", "class", "val " + (rc.ok === true ? "ok" : rc.ok === false ? (sim ? "warn" : "bad") : ""));
+  put("rSummary", "text", rc.summary || "Not checked yet");
+  const ck = JSON.stringify(rc.checks || []);
+  if (ck !== cache.get("rchecks")) {
+    cache.set("rchecks", ck);
+    $("rChecks").innerHTML = (rc.checks || []).filter(c => !c.ok).map(c =>
+      `<div class="row"><span class="lbl bad">${esc(c.name)}<small style="white-space:normal">${esc(c.detail)}</small></span></div>`).join("");
+  }
 
   // Car + motion
   const car = d.car || { state: "unknown" }, mo = d.motion || {};
@@ -991,7 +1039,7 @@ function render(d) {
   put("mMac", "text", mo.mac || "—");
   put("mState", "text", hasMotion ? (mo.active ? "Detected" : "Clear") : "Waiting for report");
   put("mState", "class", "val " + (mo.active ? "warn" : hasMotion ? "ok" : ""));
-  put("mLast", "text", mo.last_motion ? ago(mo.last_motion) : "Never");
+  refreshTimes();
   put("mBatt", "text", mo.battery != null ? mo.battery + "%" : "—");
   put("mBatt", "class", "val " + (mo.battery != null && mo.battery < 20 ? "bad" : ""));
   put("mRssi", "text", mo.signal_strength != null ? mo.signal_strength + " dBm" : "—");
@@ -1053,7 +1101,8 @@ function render(d) {
   try { abbr = new Intl.DateTimeFormat("en-US", { timeZone: tz.name, timeZoneName: "short" }).formatToParts(new Date())
           .find(x => x.type === "timeZoneName").value; } catch (e) {}
   put("tzVal", "text", `${zl.city} · ${abbr}`);
-  put("tzNow", "text", fmtTz(Date.now(), { weekday: "short", hour: "numeric", minute: "2-digit", timeZoneName: "short" }));
+  put("tzNow", "text", nowText());
+  $("h24").checked = H24();
   put("tzNote", "text", tz.database === false
     ? "This Pi is missing time-zone data, so alerts use UTC. Fix: sudo apt install tzdata (see README)."
     : `Daylight saving time is applied automatically${tz.dst ? " (in effect now)" : ""}.`);
@@ -1074,7 +1123,7 @@ function render(d) {
 
   // Logs (re-render only when changed)
   const logs = d.recent_logs || [];
-  const key = logs.length + "|" + (logs[0] ? logs[0].timestamp + logs[0].details : "") + TZ() + dayKey(Date.now());
+  const key = logs.length + "|" + (logs[0] ? logs[0].timestamp + logs[0].details : "") + TZ() + dayKey(Date.now()) + H24();
   if (key !== logKey) {
     logKey = key;
     $("recent").innerHTML = logs.slice(0, 4).map(eventRow).join("") || '<div class="empty">No activity yet</div>';
@@ -1091,7 +1140,8 @@ setInterval(() => {
   if (lightDeadline) tickLight();
   tickAutoClose();
   if (S.pairing && S.pairing.active) renderPairing();
-  if (S.timezone) put("tzNow", "text", fmtTz(Date.now(), { weekday: "short", hour: "numeric", minute: "2-digit", timeZoneName: "short" }));
+  if (S.timezone) put("tzNow", "text", nowText());
+  refreshTimes();
 }, 1000);
 
 // ── Live connection: SSE with polling fallback ───────

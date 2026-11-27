@@ -68,7 +68,7 @@ def _now_iso() -> str:
 # Timers (auto-close, light auto-off, alerts) count real elapsed seconds, so a
 # DST change never makes them fire early or late.
 DEFAULT_TZ = "America/New_York"
-SETTINGS = {"timezone": DEFAULT_TZ}
+SETTINGS = {"timezone": DEFAULT_TZ, "clock_24h": False}
 
 
 def _zone(name: str = None):
@@ -97,14 +97,16 @@ def local_dt(ts: float = None) -> datetime:
 
 
 def fmt_clock(ts: float = None) -> str:
-    """e.g. '7:42 PM'"""
-    return local_dt(ts).strftime("%I:%M %p").lstrip("0")
+    """e.g. '7:42 PM', or '19:42' with 24-hour time on."""
+    dt = local_dt(ts)
+    return dt.strftime("%H:%M") if SETTINGS["clock_24h"] else dt.strftime("%I:%M %p").lstrip("0")
 
 
 def tz_public() -> dict:
     dt = local_dt()
     off = int(dt.utcoffset().total_seconds() // 60)
     return {"name": SETTINGS["timezone"], "abbr": dt.tzname(), "offset_minutes": off,
+            "clock_24h": SETTINGS["clock_24h"],
             "dst": bool(dt.dst()), "database": tz_database_ok(), "local_time": dt.strftime("%Y-%m-%d %H:%M:%S")}
 
 
@@ -274,7 +276,7 @@ def correct_door(is_open: bool):
         door_info["sensor"]["state"] = "open" if is_open else "closed"
     _correction["at"] = time.time()
     set_door_state(is_open)
-    add_log("Door", f"Corrected in Halo: {before.lower()} → {'open' if is_open else 'closed'} (no signal sent)", True)
+    add_log("Door", f"Corrected in Halo from {before.lower()} to {'open' if is_open else 'closed'} (no signal sent)", True)
 
 
 def start_door_travel() -> str:
@@ -437,7 +439,7 @@ def rename_sensor(which: str, name: str):
         door_info[info_key]["name"] = name
     if CTX["remote_mgr"]:
         CTX["remote_mgr"].update(**{cfg_key: name})
-    add_log("Sensor", f"Renamed “{old}” to “{name}”", True)
+    add_log("Sensor", f"Renamed '{old}' to '{name}'", True)
 
 
 # Ceiling-mounted distance sensors pointing down at the parking spot. Each one
@@ -662,7 +664,7 @@ def set_car(state: str, source: str, reason: str):
         car.update(state=state, source=source, reason=reason, updated_at=_now_iso())
         save_door_state()
     if changed:
-        add_log("Car", f"{'In garage' if state == 'present' else 'Away' if state == 'away' else 'Unknown'} — {reason}", True)
+        add_log("Car", f"{'In garage' if state == 'present' else 'Away' if state == 'away' else 'Unknown'}: {reason}", True)
     else:
         notify_change()
 
@@ -1167,7 +1169,7 @@ def press_door(repeats=None, source: str = None, allow_locked: bool = False) -> 
     _last_door_cmd.update(source=source or "Halo", at=time.time())
     new_state = start_door_travel()
     new_rolling, _ = mgr.peek_codes()
-    add_log("Door", f"Sent open/close from {source or 'Halo'} (code {rolling} → {new_rolling})", True)
+    add_log("Door", f"Sent open/close from {source or 'Halo'} (code {rolling}, next {new_rolling})", True)
     return {"door_state": new_state, "door_percent": door_info["percent"],
             "sent_rolling_code": rolling, "next_rolling_code": new_rolling, "fixed_code": fixed}
 
@@ -1213,7 +1215,7 @@ def set_lock(locked=None) -> bool:
         door_info["locked"] = bool(locked) if isinstance(locked, bool) else not door_info["locked"]
         locked = door_info["locked"]
         save_door_state()
-    add_log("Remote Lock", "Locked — door commands blocked" if locked else "Unlocked", True)
+    add_log("Remote Lock", "Locked: door commands blocked" if locked else "Unlocked", True)
     return locked
 
 
@@ -1458,7 +1460,7 @@ def _explain(err: Exception) -> str:
     if "CERTIFICATE_VERIFY_FAILED" in msg:
         if time.gmtime().tm_year < 2024:
             return "This device's clock is wrong, so secure connections fail. Check the Pi's time (timedatectl)."
-        return "Secure connection to the alert server failed (certificate problem). See README → Door Alerts → Troubleshooting."
+        return "Secure connection to the alert server failed (certificate problem). See the README, Door Alerts, Troubleshooting."
     if any(k in msg.lower() for k in ("name or service", "getaddrinfo", "nodename", "temporary failure in name")):
         return "No internet / DNS: couldn't find the alert server"
     if "refused" in msg.lower() or "unreachable" in msg.lower():
@@ -1501,9 +1503,11 @@ def send_notification(title: str, message: str, priority: str = "default",
         n = dict(NOTIFY)
     if not n["topic"] or not (n["enabled"] or force):
         return "Door alerts are off"
-    # Plain text only: no Tags header (ntfy shows tags as emoji) and no Markdown.
-    headers = {"Title": title.encode("ascii", "replace").decode(), "Priority": priority,
-               "User-Agent": "Halo/2.0"}
+    # Plain text only: no Tags (ntfy shows them as emoji), no Markdown, and no
+    # Priority header (ntfy marks high/urgent alerts with icons). ASCII only.
+    title = title.encode("ascii", "replace").decode()
+    message = message.encode("ascii", "replace").decode()
+    headers = {"Title": title, "User-Agent": "Halo/2.0"}
     if n["app_url"]:
         headers["Click"] = n["app_url"]
         if close_action:
@@ -1726,6 +1730,8 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
             "/api/notifications": self.handle_notifications,
             "/api/notifications/test": self.handle_notifications_test,
             "/api/settings": self.handle_settings,
+            "/api/logs/clear": self.handle_logs_clear,
+            "/api/radio/check": self.handle_radio_check,
             "/api/door/correct": self.handle_door_correct,
             "/api/distance": self.handle_distance,
             "/api/distance/calibrate": self.handle_distance_calibrate,
@@ -1867,6 +1873,14 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
             return self.send_json({"success": False, "error": err}, 502)
         self.send_json({"success": True, "message": "Delivered to ntfy"})
 
+    def handle_logs_clear(self, data: dict):
+        activity_log.clear()
+        notify_change()
+        self.send_json({"success": True})
+
+    def handle_radio_check(self, data: dict):
+        self.send_json({"success": True, "radio": check_radio()})
+
     def handle_door_correct(self, data: dict):
         st = str(data.get("state", "")).lower()
         if st not in ("open", "closed"):
@@ -1921,6 +1935,12 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
         self.send_json({"success": True, "distance": distance_public()})
 
     def handle_settings(self, data: dict):
+        if isinstance(data.get("clock_24h"), bool):
+            SETTINGS["clock_24h"] = data["clock_24h"]
+            if CTX["remote_mgr"]:
+                CTX["remote_mgr"].update(clock_24h=SETTINGS["clock_24h"])
+            add_log("Halo", "24-hour time on" if SETTINGS["clock_24h"] else "24-hour time off", True)
+            notify_change()
         if "timezone" in data:
             try:
                 set_timezone(str(data["timezone"]))
@@ -2072,6 +2092,64 @@ def refresh_hw_state(radio: CC1101, full: bool = False):
         logger.error(f"Error reading radio registers: {e}")
 
 
+MARC_STATES = {
+    0x00: "Sleep", 0x01: "Idle", 0x02: "Crystal off", 0x03: "Starting (VCOON_MC)", 0x04: "Starting (REGON_MC)",
+    0x05: "Calibrating", 0x06: "Starting (VCOON)", 0x07: "Starting (REGON)", 0x08: "Calibrating (STARTCAL)",
+    0x09: "Settling (BWBOOST)", 0x0A: "Settling (FS_LOCK)", 0x0B: "Settling (IFADCON)", 0x0C: "Calibrating (ENDCAL)",
+    0x0D: "Receiving", 0x0E: "Receive ending", 0x0F: "RX to TX", 0x10: "RX to TX settling",
+    0x11: "Receive overflow", 0x12: "Frequency synth on", 0x13: "Transmitting", 0x14: "Transmit ending",
+    0x15: "TX to RX settling", 0x16: "Transmit underflow",
+}
+RADIO_CHECK = {"checked_at": None, "ok": None, "checks": [], "summary": "Not checked yet"}
+
+
+def check_radio() -> dict:
+    """Read the CC1101's identity, state and frequency over SPI and say plainly if it's healthy.
+    Read-only: nothing on the chip is changed."""
+    radio = CTX["radio"]
+    checks = []
+    if radio is None or radio.is_mock:
+        RADIO_CHECK.update(checked_at=_now_iso(), ok=False, summary="No CC1101 found: running in simulation",
+                           checks=[{"name": "SPI connection", "ok": False,
+                                    "detail": "Couldn't open /dev/spidev0.0. Enable SPI (raspi-config) and check the wiring."}])
+        notify_change()
+        return dict(RADIO_CHECK)
+    try:
+        with radio_lock:
+            part, ver = radio.get_partnum(), radio.get_version()
+            state = radio.get_state()
+            from cc1101 import REG_FREQ2, REG_FREQ1, REG_FREQ0
+            f2, f1, f0 = radio.read_reg(REG_FREQ2), radio.read_reg(REG_FREQ1), radio.read_reg(REG_FREQ0)
+    except Exception as e:
+        RADIO_CHECK.update(checked_at=_now_iso(), ok=False, summary=f"SPI error: {e}",
+                           checks=[{"name": "SPI connection", "ok": False, "detail": str(e)[:160]}])
+        notify_change()
+        return dict(RADIO_CHECK)
+    hw_info.update(part_number=f"0x{part:02X}", version=f"0x{ver:02X}", state=f"0x{state:02X}")
+    wiring_dead = ver in (0x00, 0xFF) and part in (0x00, 0xFF)
+    checks.append({"name": "SPI connection", "ok": not wiring_dead,
+                   "detail": "Chip is answering" if not wiring_dead else
+                   "No answer (reads all 0x00 or 0xFF). Check VCC 3.3 V, GND, MISO/MOSI/SCK/CSN wiring."})
+    checks.append({"name": "Chip identity", "ok": part == 0x00 and ver in (0x04, 0x14),
+                   "detail": f"Part 0x{part:02X}, version 0x{ver:02X}"
+                             + (" (genuine CC1101)" if ver == 0x14 else " (older CC1101 silicon)" if ver == 0x04
+                                else " (not a recognised CC1101)")})
+    freq = 26.0 * ((f2 << 16) | (f1 << 8) | f0) / 65536.0
+    target = float(CTX["remote_mgr"].config.get("frequency_mhz", 315.0)) if CTX["remote_mgr"] else 315.0
+    checks.append({"name": "Frequency", "ok": abs(freq - target) < 0.05,
+                   "detail": f"Tuned to {freq:.3f} MHz (expected {target:.2f} MHz, 26 MHz crystal)"})
+    state_name = MARC_STATES.get(state, f"Unknown (0x{state:02X})")
+    checks.append({"name": "Radio state", "ok": state in (0x01, 0x0D, 0x13, 0x14, 0x12),
+                   "detail": state_name + ("" if state in (0x01, 0x0D, 0x13, 0x14, 0x12) else
+                                           ". Unusual: try restarting Halo")})
+    ok = all(c["ok"] for c in checks)
+    RADIO_CHECK.update(checked_at=_now_iso(), ok=ok, checks=checks, state_name=state_name,
+                       frequency_mhz=round(freq, 3),
+                       summary="CC1101 is healthy" if ok else next(c["name"] + ": " + c["detail"] for c in checks if not c["ok"]))
+    add_log("Radio", RADIO_CHECK["summary"], ok)
+    return dict(RADIO_CHECK)
+
+
 def build_status(remote_mgr: RemoteManager, radio: CC1101) -> dict:
     rolling, fixed = remote_mgr.peek_codes()
     cfg = remote_mgr.config
@@ -2113,6 +2191,8 @@ def build_status(remote_mgr: RemoteManager, radio: CC1101) -> dict:
             "connected": not radio.is_mock,
             "is_simulation": radio.is_mock,
             **hw_info,
+            "state_name": MARC_STATES.get(int(hw_info["state"], 16), "Unknown"),
+            "check": dict(RADIO_CHECK),
         },
         "recent_logs": list(activity_log)[:20],
     }
@@ -2150,6 +2230,7 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
         radio.setup_security_plus_315mhz(packet_len=50)
     refresh_hw_state(radio, full=True)
 
+    SETTINGS["clock_24h"] = bool(remote_mgr.config.get("clock_24h", False))
     tzname = remote_mgr.config.get("timezone") or DEFAULT_TZ
     if valid_timezone(tzname):
         SETTINGS["timezone"] = tzname
@@ -2167,6 +2248,8 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
     if DIST["enabled"]:
         threading.Thread(target=_distance_reader, daemon=True).start()
     threading.Thread(target=_auto_close_worker, daemon=True).start()
+    CTX.update(remote_mgr=remote_mgr, radio=radio)
+    threading.Thread(target=check_radio, daemon=True).start()          # health check at startup
     SENSORS["door"] = _norm_mac(remote_mgr.config.get("sensor_mac"))
     SENSORS["car"] = _norm_mac(remote_mgr.config.get("car_sensor_mac"))
     for which, (info_key, cfg_key) in SENSOR_NAME_KEYS.items():
