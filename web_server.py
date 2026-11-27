@@ -834,9 +834,11 @@ def _auto_close_worker():
         # Warning shortly before closing
         if not AC["warned"] and now >= AC["deadline"] - AUTO_CLOSE["warn_seconds"]:
             AC["warned"] = True
-            send_notification("Garage door closing soon",
-                              f"Halo will close the garage door in {int(AUTO_CLOSE['warn_seconds'])} s.",
-                              priority="high", tags="warning", keep_open_action=True)
+            secs = int(AUTO_CLOSE["warn_seconds"])
+            send_notification("Garage Door Closing Soon",
+                              f"The garage door will close automatically in {secs} seconds. "
+                              "Select Keep Open to leave it open.",
+                              priority="high", keep_open_action=True)
             notify_change()
         if now < AC["deadline"]:
             continue
@@ -863,8 +865,9 @@ def _auto_close_worker():
             press_door(source="Auto-close", allow_locked=True)
         except Exception as e:
             add_log("Auto-Close", f"Couldn't send close: {e}", False)
-            send_notification("Auto-close failed", f"Halo couldn't close the garage door: {e}",
-                              priority="high", tags="rotating_light", close_action=True)
+            send_notification("Auto-Close Failed",
+                              f"Halo could not send the close command. Reason: {e}. The garage door is still open.",
+                              priority="high", close_action=True)
             continue
         threading.Thread(target=_verify_auto_close, daemon=True).start()
 
@@ -878,9 +881,11 @@ def _verify_auto_close():
         sensor_open = door_info["sensor"]["state"] == "open"
     if not closed or sensor_open:
         add_log("Auto-Close", "Door did not close (something in the way?). Not retrying", False)
-        send_notification("Garage door did NOT close",
-                          "Auto-close tried but the door is still open. Check for something blocking it.",
-                          priority="urgent", tags="rotating_light")
+        send_notification("Garage Door Did Not Close",
+                          "Halo sent an automatic close command, but the garage door is still open. "
+                          "Check the doorway for an obstruction. Auto-close will not try again until the door "
+                          "is next opened.",
+                          priority="urgent")
 
 
 # ── Actions shared by HTTP and MQTT ────────────────────────────────────────────
@@ -1245,7 +1250,7 @@ def _deliver(url: str, data: bytes, headers: dict):
 
 
 def send_notification(title: str, message: str, priority: str = "default",
-                      tags: str = "house", close_action: bool = False, force: bool = False,
+                      tags: str = None, close_action: bool = False, force: bool = False,
                       keep_open_action: bool = False, wait: bool = False):
     """Push an alert to ntfy.
 
@@ -1257,14 +1262,15 @@ def send_notification(title: str, message: str, priority: str = "default",
         n = dict(NOTIFY)
     if not n["topic"] or not (n["enabled"] or force):
         return "Door alerts are off"
-    headers = {"Title": title.encode("ascii", "replace").decode(), "Priority": priority, "Tags": tags,
+    # Plain text only: no Tags header (ntfy shows tags as emoji) and no Markdown.
+    headers = {"Title": title.encode("ascii", "replace").decode(), "Priority": priority,
                "User-Agent": "Halo/2.0"}
     if n["app_url"]:
         headers["Click"] = n["app_url"]
         if close_action:
-            headers["Actions"] = f"http, Close door, {n['app_url']}/api/close?source=Notification, method=POST, clear=true"
+            headers["Actions"] = f"http, Close Door, {n['app_url']}/api/close?source=Notification, method=POST, clear=true"
         if keep_open_action:
-            headers["Actions"] = f"http, Keep open, {n['app_url']}/api/auto-close/hold, method=POST, clear=true"
+            headers["Actions"] = f"http, Keep Open, {n['app_url']}/api/auto-close/hold, method=POST, clear=true"
     url = f"{n['server']}/{n['topic']}"
     data = message.encode("utf-8")
 
@@ -1300,8 +1306,24 @@ def send_notification(title: str, message: str, priority: str = "default",
 
 
 def _fmt_minutes(sec: float) -> str:
+    """Elapsed time in words, e.g. '12 minutes', '1 hour 5 minutes'."""
     m = int(round(sec / 60))
-    return "under a minute" if m < 1 else f"{m} min" if m < 60 else f"{m // 60} h {m % 60} min"
+    if m < 1:
+        return "less than a minute"
+    unit = lambda n, w: f"{n} {w}{'' if n == 1 else 's'}"
+    if m < 60:
+        return unit(m, "minute")
+    h, r = divmod(m, 60)
+    return unit(h, "hour") + (f" {unit(r, 'minute')}" if r else "")
+
+
+_SOURCE_PHRASE = {"Halo app": "the Halo app", "HomeKit": "Apple Home", "MQTT": "an MQTT command", "API": "the Halo API",
+                  "Notification": "a notification action", "Auto-close": "auto-close",
+                  "remote or wall button": "a handheld remote or the wall button"}
+
+
+def _by(src: str) -> str:
+    return f" using {_SOURCE_PHRASE.get(src, src)}" if src else ""
 
 
 def _door_notifier():
@@ -1328,23 +1350,26 @@ def _door_notifier():
             src = _last_door_cmd["source"] if now - _last_door_cmd["at"] < 30 else (
                 "remote or wall button" if sensor_live else None)
             if NOTIFY["on_open"]:
-                send_notification("Garage door opened",
-                                  f"Opened at {fmt_clock(now)}{' from ' + src if src else ''}.", tags="door,warning")
+                send_notification("Garage Door Opened",
+                                  f"The garage door was opened at {fmt_clock(now)}{_by(src)}.")
         elif not prev_closed and closed:
             if NOTIFY["on_close"]:
-                how_long = f" after {_fmt_minutes(now - opened_at)}" if opened_at else ""
+                how_long = f" It was open for {_fmt_minutes(now - opened_at)}." if opened_at else ""
                 auto = _last_door_cmd["source"] == "Auto-close" and now - _last_door_cmd["at"] < 120
-                send_notification("Garage door closed automatically" if auto else "Garage door closed",
-                                  f"Closed at {fmt_clock(now)}{how_long}.", tags="door,white_check_mark")
+                if auto:
+                    send_notification("Garage Door Closed Automatically",
+                                      f"Halo closed the garage door at {fmt_clock(now)} because it was left open.{how_long}")
+                else:
+                    send_notification("Garage Door Closed", f"The garage door was closed at {fmt_clock(now)}.{how_long}")
             opened_at = None
         prev_closed = closed
         limit = NOTIFY["left_open_minutes"] * 60
         if opened_at and limit and reminders < 3 and now - opened_at >= limit * (reminders + 1):
             reminders += 1
-            send_notification("Garage door left open",
+            send_notification("Garage Door Left Open",
                               f"The garage door has been open since {fmt_clock(opened_at)} "
-                              f"({_fmt_minutes(now - opened_at)}).",
-                              priority="high", tags="rotating_light", close_action=True)
+                              f"({_fmt_minutes(now - opened_at)}). Select Close Door to close it.",
+                              priority="high", close_action=True)
 
 
 # ── Static file cache ──────────────────────────────────────────────────────────
@@ -1589,8 +1614,8 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
             configure_notifications(app_url=data["app_url"])
         if not NOTIFY["enabled"]:
             return self.send_json({"success": False, "error": "Turn on door alerts first"}, 400)
-        err = send_notification("Halo test", f"Door alerts are working ({fmt_clock()}). You'll be notified when the "
-                                "garage door opens, closes or is left open.", tags="tada", wait=True)
+        err = send_notification("Halo Test Notification",
+                                f"Garage door alerts are set up correctly. Sent at {fmt_clock()}.", wait=True)
         if err:
             return self.send_json({"success": False, "error": err}, 502)
         self.send_json({"success": True, "message": "Delivered to ntfy"})

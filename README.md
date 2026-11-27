@@ -18,7 +18,7 @@ Halo drives Chamberlain, LiftMaster and Craftsman openers with the **purple Lear
 * **Local-first.** Door, light, sensor and HomeKit all run on your LAN. Losing the internet or Tailscale never stops the garage, and Halo reconnects within seconds when the network blips.
 * **Ground-truth sensing.** A Wyze Sense v2 contact sensor over MQTT (or any integration that POSTs to `/api/sensor`) overrides the simulated door position.
 * **Is the car home?** An optional Wyze motion sensor in the bay lets Halo estimate whether the car is in the garage, and you can correct it with a tap.
-* **Auto-close.** Closes the door after it's been left open, but only when the contact sensor confirms it's open, after a warning with **Keep open**, and not while someone's moving in the garage.
+* **Auto-close.** Closes the door after it's been left open, but only when the contact sensor confirms it's open, after a warning with **Keep Open**, and not while someone's moving in the garage.
 * **Sensors & bridge.** Pair Wyze sensors and choose what each one does from the app. If the USB bridge drops or is replugged, Halo reconnects it automatically.
 * **Remote lock.** While it is on, every door command is refused, including from HomeKit.
 * **Apple Home & Siri.** Bundled Homebridge plugin exposes the door and the light.
@@ -348,9 +348,9 @@ Halo can close the garage door if it's been left open. Turn it on in **Device �
 The opener's remote is a toggle: the same press opens a closed door. So auto-close has strict rules:
 
 * **It only closes when the contact sensor confirms the door is open.** If Halo can't confirm it, it waits and tells you why. It never acts on a guess.
-* **It warns you first.** A minute before closing, the Home screen shows **Closing in 0:59 · Keep Open**, and if [door alerts](#door-alerts-notifications) are on you get a notification with a **Keep open** button. Keep Open lasts until the door next closes.
+* **It warns you first.** A minute before closing, the Home screen shows **Closing in 0:59 · Keep Open**, and if [door alerts](#door-alerts-notifications) are on you get a notification with a **Keep Open** button. Keep Open lasts until the door next closes.
 * **It waits while someone's in the garage.** If the car motion sensor saw movement in the last 2 minutes, it holds off and checks again a minute later.
-* **It tries once.** If the door is still open shortly after (for example, the safety sensors saw something and the opener reversed), you get a **Garage door did NOT close** alert and Halo doesn't try again until the next time the door opens.
+* **It tries once.** If the door is still open shortly after (for example, the safety sensors saw something and the opener reversed), you get a **Garage Door Did Not Close** alert and Halo doesn't try again until the next time the door opens.
 * It works even with the remote lock on, because closing is the safe direction.
 
 > ⚠️ Closing a door nobody is watching is only safe with working **safety sensors** (the photo-eyes near the floor). Test them before relying on auto-close: block the beam while the door is closing and it must reverse.
@@ -368,16 +368,20 @@ Halo can notify your phone when the **garage door** opens, closes, or is left op
 
 | Alert | When |
 | :--- | :--- |
-| **Garage door opened** | Every opening, with who did it: Halo app, HomeKit, MQTT, or "remote or wall button" (spotted by the contact sensor) |
-| **Garage door closed** | Every closing, with how long it was open |
-| **Garage door left open** | After 5, 10 or 30 minutes (your choice), repeated up to 3 times. It has a **Close door** button, which works when your phone can reach Halo (home Wi-Fi or Tailscale) |
+| **Garage Door Opened** | *The garage door was opened at 7:42 PM using the Halo app.* (Also Apple Home, an MQTT command, or a handheld remote or the wall button, as seen by the contact sensor.) |
+| **Garage Door Closed** | *The garage door was closed at 7:55 PM. It was open for 13 minutes.* |
+| **Garage Door Left Open** | *The garage door has been open since 7:42 PM (10 minutes). Select Close Door to close it.* Sent after 5, 10 or 30 minutes (your choice), up to 3 times. The **Close Door** button works when your phone can reach Halo (home Wi-Fi or Tailscale). |
+| **Garage Door Closing Soon** | *The garage door will close automatically in 60 seconds. Select Keep Open to leave it open.* (Auto-close only) |
+| **Garage Door Closed Automatically** | *Halo closed the garage door at 8:05 PM because it was left open. It was open for 10 minutes.* |
+
+Alerts are plain text: no emoji, icons or tags.
 
 You can switch "When Opened" and "When Closed" off and keep only the left-open reminder.
 
 * Alerts are sent from a background thread and retried for about a minute, so a slow or missing internet connection never delays the door. Opening and closing keep working with no internet; only the alert has to wait.
 * Want everything self-hosted? Run your own ntfy server and set its address in `remote_config.json` (`notifications.server`).
 * Tapping an alert opens Halo at the address you used when you turned alerts on.
-* Alerts show the local time in your chosen [time zone](#date--time), e.g. *"Opened at 7:42 PM from Halo app."*
+* Alerts show the local time in your chosen [time zone](#date--time), e.g. *"The garage door was opened at 7:42 PM using the Halo app."*
 
 ### Troubleshooting: alerts not showing up
 **Device → Door Alerts** shows **Last Alert** (*Delivered 7:42 PM* or *Failed 7:42 PM*) with the reason underneath, and **Send Test Notification** only says "Delivered" once ntfy has actually accepted the alert.
