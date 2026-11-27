@@ -1,4 +1,5 @@
 {
+    "timezone": "America/New_York",
     "name": "Halo Virtual Remote",
     "frequency_mhz": 315.0,
     "fixed_code": 632995987,

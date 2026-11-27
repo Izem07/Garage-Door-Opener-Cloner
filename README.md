@@ -135,6 +135,7 @@ Halo keeps the rolling code in this file. Optional keys:
 | `repeats_per_press` | `8` | Bursts per button press |
 | `sensor_mac` | — | Door contact sensor MAC. When set, only this sensor can change the door state |
 | `car_sensor_mac` | — | Motion sensor MAC used for car presence |
+| `timezone` | `America/New_York` | Time zone for the app, activity and alerts (any IANA name; set from the app) |
 | `auto_close.enabled` / `minutes` | off / `10` | Close the door if left open (set from the app) |
 | `bridge.watchdog` / `container` | on / `wyzesense2mqtt` | Wyze bridge auto-reconnect |
 | `notifications.*` | off | Door alerts: `enabled`, `server`, `topic`, `left_open_minutes`, `on_open`, `on_close` (set from the app) |
@@ -376,6 +377,28 @@ You can switch "When Opened" and "When Closed" off and keep only the left-open r
 * Alerts are sent from a background thread and retried for about a minute, so a slow or missing internet connection never delays the door. Opening and closing keep working with no internet; only the alert has to wait.
 * Want everything self-hosted? Run your own ntfy server and set its address in `remote_config.json` (`notifications.server`).
 * Tapping an alert opens Halo at the address you used when you turned alerts on.
+* Alerts show the local time in your chosen [time zone](#date--time), e.g. *"Opened at 7:42 PM from Halo app."*
+
+### Troubleshooting: alerts not showing up
+**Device → Door Alerts** shows **Last Alert** (*Delivered 7:42 PM* or *Failed 7:42 PM*) with the reason underneath, and **Send Test Notification** only says "Delivered" once ntfy has actually accepted the alert.
+
+| What the app says | Fix |
+| :--- | :--- |
+| *Delivered*, but nothing on the phone | In the ntfy app, check you subscribed to the **exact** topic shown in Halo, on server `ntfy.sh`. Then check iPhone **Settings → Notifications → ntfy** is allowed, and Focus/Do Not Disturb isn't hiding it |
+| *Certificate problem* | Update the Pi's certificates: `sudo apt update && sudo apt install --reinstall ca-certificates`. Halo also retries with expired root certificates left out (an expired "ISRG Root X2" copy in the system store is a known cause) |
+| *Clock is wrong* | The Pi's time is off, so secure connections fail. Check `timedatectl`; it should say *System clock synchronized: yes* |
+| *No internet / DNS* or *Couldn't connect* | The Pi can't reach the alert server. Door control still works; alerts resume when the connection does |
+
+---
+
+## Date & Time
+
+**Device → Date & Time → Time Zone** picks the zone Halo shows times in. It defaults to **New York (Eastern)**, and **This device** is offered at the top of the list.
+
+* Halo stores every event in UTC and shows it in your zone using the standard IANA time-zone database. **Daylight saving is automatic:** on spring-forward night 1:59 AM EST is followed by 3:00 AM EDT, and in the fall 1:30 AM happens twice (EDT, then EST). Each event still appears in the right order and under the right day.
+* The activity list is grouped by day (**Today**, **Yesterday**, then dates) in your zone. A 10:30 PM event stays under *today* even though it's already tomorrow in UTC.
+* Timers (auto-close, left-open reminders, light auto-off) count real elapsed time, so a DST change never makes them early or late. A door open from 1:50 to 3:10 AM on spring-forward night counts as 20 minutes.
+* Raspberry Pi OS includes the time-zone database. If the app says it's missing, run `sudo apt install tzdata` (or `pip install tzdata` on Windows).
 
 ---
 
@@ -460,6 +483,7 @@ Global flags: `--config`, `--spi-bus`, `--spi-device`, `--mode fifo|async`, `--g
 | `/api/light/state` | POST | `{"on": true}` | Report light state from an external sensor (no RF) |
 | `/api/notifications` | POST | `{"enabled": true, "left_open_minutes": 10}` | Door alert settings (also `on_open`, `on_close`, `server`, `topic`) |
 | `/api/notifications/test` | POST | — | Send a test alert |
+| `/api/settings` | POST | `{"timezone": "America/Chicago"}` | Change the time zone |
 | `/api/auto-close` | POST | `{"enabled": true, "minutes": 10}` | Auto-close settings |
 | `/api/auto-close/hold` | POST | — | Keep the door open until it next closes |
 | `/api/sensors/pair` | POST | `{"seconds": 60}` | Put the Wyze bridge in pairing mode |

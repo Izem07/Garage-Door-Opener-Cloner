@@ -353,8 +353,7 @@ button.row:active,a.row:active{background:var(--fill)}
   <!-- ACTIVITY -->
   <main class="view" id="view-activity" data-title="Activity">
     <div class="large"><h1>Activity</h1><p>Last 20 events on this module</p></div>
-    <div class="group-h">Today</div>
-    <div class="list icons" id="activity"><div class="empty">No activity yet</div></div>
+    <div id="activity"><div class="group-h">Today</div><div class="list"><div class="empty">No activity yet</div></div></div>
   </main>
 
   <!-- DEVICE -->
@@ -445,9 +444,19 @@ button.row:active,a.row:active{background:var(--fill)}
       <div class="row nmore" style="display:block;padding:10px 16px 6px"><span style="display:block">Left-Open Reminder</span>
         <div class="seg" id="nLeftSeg"><button data-v="0">Off</button><button data-v="5">5 min</button><button data-v="10">10 min</button><button data-v="30">30 min</button></div></div>
       <button class="row nmore" onclick="copyTopic()"><span class="lbl">ntfy Topic<small id="nTopicHint">Tap to copy</small></span><span class="val mono" id="nTopic">—</span></button>
+      <a class="row nmore" id="nOpenLink" href="#" target="_blank" rel="noopener" style="color:inherit;text-decoration:none"><span class="lbl">Open Topic in ntfy<small>Or open the ntfy app, tap +, and paste the topic</small></span><svg class="i chev"><use href="#i-chev"/></svg></a>
+      <div class="row nmore"><span class="lbl">Last Alert</span><span class="val" id="nLast">None sent yet</span></div>
       <button class="row nmore tint" onclick="testNotify()"><span class="lbl">Send Test Notification</span></button>
     </div>
+    <div class="group-f bad" id="nError" hidden></div>
     <div class="group-f" id="nNote">Get a notification when the garage door opens, closes or is left open. Uses the free <b>ntfy</b> app (Apple Home needs a home hub for notifications).</div>
+
+    <div class="group-h" id="tzSec">Date &amp; Time</div>
+    <div class="list">
+      <button class="row" onclick="openTzSheet()"><span class="lbl">Time Zone</span><span class="val" id="tzVal">New York</span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <div class="row"><span class="lbl">Local Time</span><span class="val" id="tzNow">—</span></div>
+    </div>
+    <div class="group-f" id="tzNote">Daylight saving time is applied automatically.</div>
 
     <div class="group-h">Appearance</div>
     <div class="list"><div class="row" style="display:block;padding:6px 12px">
@@ -528,6 +537,15 @@ button.row:active,a.row:active{background:var(--fill)}
   <div class="found list icons" id="foundList" hidden></div>
 </section>
 
+<section class="sheet" id="sheet-tz">
+  <div class="grab"></div>
+  <div class="sheet-h"><span></span><b>Time Zone</b><button onclick="closeAll()">Done</button></div>
+  <div class="field" style="font-family:var(--font)"><svg class="i" style="color:var(--label3);margin-right:8px"><use href="#i-list"/></svg>
+    <input id="tzSearch" type="search" placeholder="Search city or region" autocomplete="off" style="font-family:var(--font)"></div>
+  <div class="list" id="tzDevice" style="margin-bottom:12px"></div>
+  <div class="list" id="tzList" style="max-height:52vh;overflow:auto"></div>
+</section>
+
 <div class="asheet" id="asheet">
   <div class="grp">
     <div class="msg"><b id="asTitle"></b><span id="asMsg"></span></div>
@@ -555,6 +573,33 @@ function put(id, prop, value) {
 }
 const cap = s => s ? s[0].toUpperCase() + s.slice(1).toLowerCase() : "";
 const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+// Times: stored in UTC, shown in the chosen zone. Intl applies DST rules itself.
+const TZ = () => (S && S.timezone && S.timezone.name) || "America/New_York";
+function fmtTz(ms, opts, zone = TZ()) {
+  try { return new Intl.DateTimeFormat(undefined, { timeZone: zone, ...opts }).format(new Date(ms)); }
+  catch (e) { return new Intl.DateTimeFormat(undefined, opts).format(new Date(ms)); }
+}
+const clock = ms => fmtTz(ms, { hour: "numeric", minute: "2-digit" });
+function dayKey(ms) {                         // YYYY-MM-DD in the chosen zone
+  const p = {}; new Intl.DateTimeFormat("en-CA", { timeZone: TZ(), year: "numeric", month: "2-digit", day: "2-digit" })
+    .formatToParts(new Date(ms)).forEach(x => p[x.type] = x.value);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+function dayLabel(ms) {
+  const today = dayKey(Date.now()), [y, m, d] = today.split("-").map(Number);
+  const yesterday = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);   // calendar math, DST-proof
+  const k = dayKey(ms);
+  return k === today ? "Today" : k === yesterday ? "Yesterday"
+    : fmtTz(ms, { weekday: "long", month: "short", day: "numeric" });
+}
+const tsOf = l => l.ts ? l.ts * 1000 : Date.parse((l.timestamp || "").replace(" ", "T"));
+function zoneLabel(z) {
+  const city = z.split("/").pop().replace(/_/g, " ");
+  let off = "";
+  try { off = new Intl.DateTimeFormat("en-US", { timeZone: z, timeZoneName: "shortOffset" }).formatToParts(new Date())
+          .find(x => x.type === "timeZoneName").value.replace("GMT", "UTC"); } catch (e) {}
+  return { city, region: z.split("/").slice(0, -1).join(" / ").replace(/_/g, " "), off: off === "UTC" ? "UTC+0" : off };
+}
 const ago = iso => {
   const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
   return s < 60 ? "Just now" : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : new Date(iso).toLocaleDateString();
@@ -687,7 +732,7 @@ function setNotify(changes) {
 }
 $("nLeftSeg").onclick = e => e.target.dataset.v && setNotify({ left_open_minutes: +e.target.dataset.v });
 const testNotify = () => act(() => api("/api/notifications/test", { app_url: location.origin }),
-  "Test sent. Check the ntfy app.");
+  "Delivered. Check the ntfy app on your phone.");
 function copyTopic() {
   const t = S && S.notifications && S.notifications.topic;
   if (!t) return;
@@ -757,6 +802,40 @@ function tickAutoClose() {
   const left = Math.max(0, Math.round(ac.deadline - S.now_offset_s()));
   put("acText", "text", ac.blocked ? `Auto-close waiting: ${ac.blocked}` : left > 0 ? `Closing in ${mmss(left)}` : "Closing now…");
 }
+let ZONES = null;
+function allZones() {
+  if (ZONES) return ZONES;
+  let z = [];
+  try { z = Intl.supportedValuesOf("timeZone"); } catch (e) {}
+  if (!z.length) z = ["America/New_York", "America/Chicago", "America/Denver", "America/Phoenix", "America/Los_Angeles",
+    "America/Anchorage", "Pacific/Honolulu", "America/Toronto", "America/Halifax", "America/Mexico_City", "America/Sao_Paulo",
+    "Europe/London", "Europe/Paris", "Europe/Berlin", "Africa/Johannesburg", "Asia/Dubai", "Asia/Kolkata", "Asia/Singapore",
+    "Asia/Tokyo", "Australia/Sydney", "Pacific/Auckland", "UTC"];
+  const top = ["America/New_York", "America/Chicago", "America/Denver", "America/Phoenix", "America/Los_Angeles",
+    "America/Anchorage", "Pacific/Honolulu"];
+  return ZONES = [...top, ...z.filter(x => !top.includes(x))];
+}
+function tzRow(z, note) {
+  const l = zoneLabel(z), sel = z === TZ();
+  return `<button class="row" onclick="chooseTz('${z}')"><span class="lbl">${esc(l.city)}${note ? ` <span class="pill">${note}</span>` : ""}<small>${esc(l.region || z)}</small></span>
+    <span class="val">${esc(l.off)}</span>${sel ? '<svg class="i" style="color:var(--blue)"><use href="#i-check"/></svg>' : ""}</button>`;
+}
+function renderTzList() {
+  const q = $("tzSearch").value.trim().toLowerCase().replace(/\s+/g, "_");
+  const list = allZones().filter(z => !q || z.toLowerCase().includes(q));
+  $("tzList").innerHTML = list.slice(0, 250).map(z => tzRow(z)).join("") || '<div class="empty">No match</div>';
+}
+function openTzSheet() {
+  const dev = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  $("tzDevice").innerHTML = dev ? tzRow(dev, "This device") : "";
+  $("tzSearch").value = ""; renderTzList();
+  $("dim").classList.add("show"); $("sheet-tz").classList.add("show");
+}
+$("tzSearch").addEventListener("input", renderTzList);
+function chooseTz(z) {
+  closeAll();
+  act(() => api("/api/settings", { timezone: z }), r => `Time zone: ${zoneLabel(z).city} (${r.timezone.abbr})`);
+}
 const confirmReset = () => confirmAction("Generate a new remote ID?",
   "The opener will stop responding until you pair Halo again.", "Generate New ID",
   () => act(() => api("/api/reset-remote", { start_counter: 1000 }), "New remote ID. Pair it now."));
@@ -769,10 +848,20 @@ const EVENT_STYLE = {
   Halo: ["i-halo", "var(--gray)"], Notifications: ["i-bell", "var(--red)"],
   "Wyze Bridge": ["i-link", "var(--green)"], "Auto-Close": ["i-garage", "var(--orange)"], Car: ["i-car", "var(--teal)"],
 };
+function renderActivity(logs) {
+  if (!logs.length) { $("activity").innerHTML = '<div class="group-h">Today</div><div class="list"><div class="empty">No activity yet</div></div>'; return; }
+  const groups = [];
+  logs.forEach(l => {
+    const label = isNaN(tsOf(l)) ? "Earlier" : dayLabel(tsOf(l));
+    if (!groups.length || groups[groups.length - 1].label !== label) groups.push({ label, items: [] });
+    groups[groups.length - 1].items.push(l);
+  });
+  $("activity").innerHTML = groups.map(g => `<div class="group-h">${esc(g.label)}</div><div class="list icons">${g.items.map(eventRow).join("")}</div>`).join("");
+}
 function eventRow(l) {
   const [ic, bg, fg = "#fff"] = EVENT_STYLE[l.action] || ["i-halo", "var(--gray)"];
   const color = l.success === false ? "var(--red)" : bg;
-  const time = (l.timestamp || "").split(" ")[1]?.slice(0, 5) || "";
+  const t = tsOf(l), time = isNaN(t) ? "" : clock(t);
   return `<div class="row ev"><span class="sq" style="background:${color};color:${l.success === false ? "#fff" : fg}"><svg class="i"><use href="#${l.success === false ? "i-alert" : ic}"/></svg></span>
     <span class="lbl">${esc(l.action)}<small>${esc(l.details)}</small></span><span class="time">${time}</span></div>`;
 }
@@ -821,7 +910,8 @@ function render(d) {
   put("sBatt", "text", sen.battery != null ? sen.battery + "%" : "—");
   put("sBatt", "class", "val " + (sen.battery != null && sen.battery < 20 ? "bad" : ""));
   put("sRssi", "text", sen.signal_strength != null ? sen.signal_strength + " dBm" : "—");
-  put("sSeen", "text", sen.last_seen || "Never");
+  const seenMs = sen.last_seen ? Date.parse(sen.last_seen) : NaN;
+  put("sSeen", "text", !sen.last_seen ? "Never" : isNaN(seenMs) ? sen.last_seen : `${clock(seenMs)} · ${ago(sen.last_seen)}`);
 
   // Radio
   const sim = hw.is_simulation;
@@ -888,6 +978,25 @@ function render(d) {
   $("nEnabled").closest(".list").classList.toggle("notify-on", !!n.enabled);
   document.querySelectorAll("#nLeftSeg button").forEach(b => b.classList.toggle("sel", +b.dataset.v === (n.left_open_minutes || 0)));
   put("nTopic", "text", n.topic || "—");
+  const ns = n.status || {};
+  const okMs = ns.last_ok ? Date.parse(ns.last_ok) : 0, errMs = ns.last_error_at ? Date.parse(ns.last_error_at) : 0;
+  const failing = ns.last_error && errMs >= okMs;
+  put("nLast", "text", failing ? `Failed ${clock(errMs)}` : okMs ? `Delivered ${clock(okMs)}` : "None sent yet");
+  put("nLast", "class", "val " + (failing ? "bad" : okMs ? "ok" : ""));
+  $("nError").hidden = !(failing && n.enabled);
+  put("nError", "text", failing ? `Last alert failed: ${ns.last_error}` : "");
+  $("nOpenLink").href = n.subscribe_url || "#";
+  // Time zone
+  const tz = d.timezone || {};
+  const zl = zoneLabel(tz.name || "America/New_York");
+  let abbr = zl.off;
+  try { abbr = new Intl.DateTimeFormat("en-US", { timeZone: tz.name, timeZoneName: "short" }).formatToParts(new Date())
+          .find(x => x.type === "timeZoneName").value; } catch (e) {}
+  put("tzVal", "text", `${zl.city} · ${abbr}`);
+  put("tzNow", "text", fmtTz(Date.now(), { weekday: "short", hour: "numeric", minute: "2-digit", timeZoneName: "short" }));
+  put("tzNote", "text", tz.database === false
+    ? "This Pi is missing time-zone data, so alerts use UTC. Fix: sudo apt install tzdata (see README)."
+    : `Daylight saving time is applied automatically${tz.dst ? " (in effect now)" : ""}.`);
   put("nTopicHint", "text", n.server && !/ntfy\.sh$/.test(n.server) ? `Server ${n.server} · tap to copy` : "Tap to copy");
 
   // Remote
@@ -905,11 +1014,11 @@ function render(d) {
 
   // Logs (re-render only when changed)
   const logs = d.recent_logs || [];
-  const key = logs.length + "|" + (logs[0] ? logs[0].timestamp + logs[0].details : "");
+  const key = logs.length + "|" + (logs[0] ? logs[0].timestamp + logs[0].details : "") + TZ() + dayKey(Date.now());
   if (key !== logKey) {
     logKey = key;
     $("recent").innerHTML = logs.slice(0, 4).map(eventRow).join("") || '<div class="empty">No activity yet</div>';
-    $("activity").innerHTML = logs.map(eventRow).join("") || '<div class="empty">No activity yet</div>';
+    renderActivity(logs);
   }
 }
 function tickLight() {
@@ -922,6 +1031,7 @@ setInterval(() => {
   if (lightDeadline) tickLight();
   tickAutoClose();
   if (S.pairing && S.pairing.active) renderPairing();
+  if (S.timezone) put("tzNow", "text", fmtTz(Date.now(), { weekday: "short", hour: "numeric", minute: "2-digit", timeZoneName: "short" }));
 }, 1000);
 
 // ── Live connection: SSE with polling fallback ───────

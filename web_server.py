@@ -20,6 +20,9 @@ import time
 import socket
 import hashlib
 import secrets
+import ssl
+from datetime import datetime, timezone
+import urllib.error
 import urllib.request
 import logging
 import re
@@ -54,7 +57,65 @@ state_lock = threading.RLock()    # door_info
 
 
 def _now_iso() -> str:
+    """UTC timestamp. Everything is stored in UTC and shown in the chosen time zone."""
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+# ── Time zone ────────────────────────────────────────────────────────────────
+# Uses the IANA time-zone database (the same rules phones and computers use),
+# so daylight saving ("spring forward", "fall back") is applied automatically.
+# Timers (auto-close, light auto-off, alerts) count real elapsed seconds, so a
+# DST change never makes them fire early or late.
+DEFAULT_TZ = "America/New_York"
+SETTINGS = {"timezone": DEFAULT_TZ}
+
+
+def _zone(name: str = None):
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name or SETTINGS["timezone"])
+    except Exception:
+        return None
+
+
+def tz_database_ok() -> bool:
+    return _zone(DEFAULT_TZ) is not None
+
+
+def valid_timezone(name: str) -> bool:
+    if not isinstance(name, str) or not re.match(r"^[A-Za-z][A-Za-z0-9_+\-]*(/[A-Za-z0-9_+\-]+)*$", name) or len(name) > 64:
+        return False
+    if name == "UTC":
+        return True
+    return _zone(name) is not None if tz_database_ok() else True
+
+
+def local_dt(ts: float = None) -> datetime:
+    """A moment in the chosen time zone (falls back to UTC if the zone data is missing)."""
+    return datetime.fromtimestamp(time.time() if ts is None else ts, _zone() or timezone.utc)
+
+
+def fmt_clock(ts: float = None) -> str:
+    """e.g. '7:42 PM'"""
+    return local_dt(ts).strftime("%I:%M %p").lstrip("0")
+
+
+def tz_public() -> dict:
+    dt = local_dt()
+    off = int(dt.utcoffset().total_seconds() // 60)
+    return {"name": SETTINGS["timezone"], "abbr": dt.tzname(), "offset_minutes": off,
+            "dst": bool(dt.dst()), "database": tz_database_ok(), "local_time": dt.strftime("%Y-%m-%d %H:%M:%S")}
+
+
+def set_timezone(name: str) -> dict:
+    if not valid_timezone(name):
+        raise ValueError(f"Unknown time zone '{name}'")
+    SETTINGS["timezone"] = name
+    if CTX["remote_mgr"]:
+        CTX["remote_mgr"].update(timezone=name)
+    t = tz_public()
+    add_log("Halo", f"Time zone set to {name} ({t['abbr']})", True)
+    return t
 
 
 door_info = {
@@ -90,7 +151,8 @@ def notify_change():
 
 def add_log(action: str, details: str = "", success: bool = True):
     activity_log.appendleft({
-        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "ts": round(time.time(), 3),
+        "timestamp": local_dt().strftime("%Y-%m-%d %H:%M:%S"),
         "action": action,
         "details": details,
         "success": success,
@@ -290,7 +352,7 @@ def ingest_sensor(data: dict, source: str):
             s["battery"] = data["battery"]
         if data.get("signal_strength") is not None:
             s["signal_strength"] = data["signal_strength"]
-        s["last_seen"] = time.strftime("%H:%M:%S")
+        s["last_seen"] = _now_iso()
         s["connected"] = True
     set_door_state(is_open)
     if is_open != was_open:
@@ -1080,6 +1142,7 @@ def notify_public() -> dict:
     with _notify_lock:
         n = dict(NOTIFY)
     n["subscribe_url"] = f"{n['server'].rstrip('/')}/{n['topic']}" if n["topic"] else None
+    n["status"] = dict(NOTIFY_STATUS)
     return n
 
 
@@ -1112,16 +1175,90 @@ def configure_notifications(**changes) -> dict:
     return notify_public()
 
 
+NOTIFY_STATUS = {"last_ok": None, "last_error": None, "last_error_at": None, "last_title": None}
+_tls = {"clean": None}
+
+
+def _clean_tls_context():
+    """Trust store without expired root certificates.
+
+    Some systems (seen on Windows; possible on an old Pi image) carry an expired
+    cross-signed 'ISRG Root X2'. OpenSSL picks it over the valid chain ntfy.sh
+    sends and refuses the connection. Dropping expired roots changes nothing
+    else: hostname checks and all other verification stay on.
+    """
+    if _tls["clean"] is None:
+        base = ssl.create_default_context()
+        now = time.time()
+        pems = [ssl.DER_cert_to_PEM_cert(der) for der, info in zip(base.get_ca_certs(True), base.get_ca_certs())
+                if ssl.cert_time_to_seconds(info["notAfter"]) > now]
+        _tls["clean"] = ssl.create_default_context(cadata="".join(pems)) if len(pems) >= 10 else False
+        if _tls["clean"] is False:
+            try:
+                import certifi                          # optional: pip install certifi
+                _tls["clean"] = ssl.create_default_context(cafile=certifi.where())
+            except Exception:
+                pass
+    return _tls["clean"] or None
+
+
+def _explain(err: Exception) -> str:
+    msg = str(getattr(err, "reason", err))
+    if isinstance(err, urllib.error.HTTPError):
+        body = ""
+        try:
+            body = err.read().decode()[:160]
+        except Exception:
+            pass
+        return f"ntfy rejected the alert (HTTP {err.code}) {body}".strip()
+    if "CERTIFICATE_VERIFY_FAILED" in msg:
+        if time.gmtime().tm_year < 2024:
+            return "This device's clock is wrong, so secure connections fail. Check the Pi's time (timedatectl)."
+        return "Secure connection to the alert server failed (certificate problem). See README → Door Alerts → Troubleshooting."
+    if any(k in msg.lower() for k in ("name or service", "getaddrinfo", "nodename", "temporary failure in name")):
+        return "No internet / DNS: couldn't find the alert server"
+    if "refused" in msg.lower() or "unreachable" in msg.lower():
+        return "Couldn't connect to the alert server (is the address right, and is it running?)"
+    if "timed out" in msg.lower():
+        return "The alert server didn't answer (timed out)"
+    return msg[:160]
+
+
+def _deliver(url: str, data: bytes, headers: dict):
+    """One delivery attempt. Returns None on success or an error message."""
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    for ctx in (None, "clean"):
+        try:
+            c = _clean_tls_context() if ctx == "clean" else None
+            if ctx == "clean" and c is None:
+                break
+            with urllib.request.urlopen(req, timeout=8, context=c) as r:
+                return None if r.status < 300 else f"HTTP {r.status}"
+        except urllib.error.HTTPError as e:
+            return _explain(e)
+        except Exception as e:
+            if ctx is None and "CERTIFICATE_VERIFY_FAILED" in str(getattr(e, "reason", e)) \
+                    and time.gmtime().tm_year >= 2024:
+                continue                                # retry with expired roots removed
+            return _explain(e)
+    return "Secure connection to the alert server failed (certificate problem)"
+
+
 def send_notification(title: str, message: str, priority: str = "default",
                       tags: str = "house", close_action: bool = False, force: bool = False,
-                      keep_open_action: bool = False):
-    """Fire-and-forget push to ntfy. Retries for ~1 minute if the internet is down."""
+                      keep_open_action: bool = False, wait: bool = False):
+    """Push an alert to ntfy.
+
+    wait=False: background thread, retried for about a minute if the internet is
+    down, so it never delays the door. wait=True: send once now and return the
+    error text (or None), used by "Send Test" so the app shows the real result.
+    """
     with _notify_lock:
         n = dict(NOTIFY)
     if not n["topic"] or not (n["enabled"] or force):
-        return False
-    headers = {"Title": title.encode("utf-8").decode("latin-1", "ignore"),
-               "Priority": priority, "Tags": tags}
+        return "Door alerts are off"
+    headers = {"Title": title.encode("ascii", "replace").decode(), "Priority": priority, "Tags": tags,
+               "User-Agent": "Halo/2.0"}
     if n["app_url"]:
         headers["Click"] = n["app_url"]
         if close_action:
@@ -1129,21 +1266,37 @@ def send_notification(title: str, message: str, priority: str = "default",
         if keep_open_action:
             headers["Actions"] = f"http, Keep open, {n['app_url']}/api/auto-close/hold, method=POST, clear=true"
     url = f"{n['server']}/{n['topic']}"
+    data = message.encode("utf-8")
+
+    def record(err):
+        if err is None:
+            NOTIFY_STATUS.update(last_ok=_now_iso(), last_title=title, last_error=None)
+        else:
+            NOTIFY_STATUS.update(last_error=err, last_error_at=_now_iso(), last_title=title)
+        notify_change()
+
+    if wait:
+        err = _deliver(url, data, headers)
+        record(err)
+        if err:
+            logger.warning(f"[Notify] {title}: {err}")
+        return err
 
     def worker():
+        err = None
         for delay in (0, 5, 15, 40):
             time.sleep(delay)
-            try:
-                req = urllib.request.Request(url, data=message.encode("utf-8"), headers=headers, method="POST")
-                with urllib.request.urlopen(req, timeout=8) as r:
-                    if r.status < 300:
-                        return
-            except Exception as e:
-                logger.info(f"[Notify] Send failed ({e}); retrying")
-        logger.warning(f"[Notify] Gave up sending: {title}")
+            err = _deliver(url, data, headers)
+            if err is None or "rejected" in err:       # delivered, or a permanent error
+                break
+            logger.info(f"[Notify] {title}: {err}; retrying")
+        record(err)
+        if err:
+            logger.warning(f"[Notify] Gave up on '{title}': {err}")
+            add_log("Notifications", f"Couldn't send '{title}': {err}", False)
 
     threading.Thread(target=worker, daemon=True).start()
-    return True
+    return None
 
 
 def _fmt_minutes(sec: float) -> str:
@@ -1175,21 +1328,22 @@ def _door_notifier():
             src = _last_door_cmd["source"] if now - _last_door_cmd["at"] < 30 else (
                 "remote or wall button" if sensor_live else None)
             if NOTIFY["on_open"]:
-                send_notification("Garage door opened", f"Opened{' from ' + src if src else ''}.",
-                                  tags="door,warning")
+                send_notification("Garage door opened",
+                                  f"Opened at {fmt_clock(now)}{' from ' + src if src else ''}.", tags="door,warning")
         elif not prev_closed and closed:
             if NOTIFY["on_close"]:
                 how_long = f" after {_fmt_minutes(now - opened_at)}" if opened_at else ""
                 auto = _last_door_cmd["source"] == "Auto-close" and now - _last_door_cmd["at"] < 120
                 send_notification("Garage door closed automatically" if auto else "Garage door closed",
-                                  f"Closed{how_long}.", tags="door,white_check_mark")
+                                  f"Closed at {fmt_clock(now)}{how_long}.", tags="door,white_check_mark")
             opened_at = None
         prev_closed = closed
         limit = NOTIFY["left_open_minutes"] * 60
         if opened_at and limit and reminders < 3 and now - opened_at >= limit * (reminders + 1):
             reminders += 1
             send_notification("Garage door left open",
-                              f"The garage door has been open for {_fmt_minutes(now - opened_at)}.",
+                              f"The garage door has been open since {fmt_clock(opened_at)} "
+                              f"({_fmt_minutes(now - opened_at)}).",
                               priority="high", tags="rotating_light", close_action=True)
 
 
@@ -1303,6 +1457,7 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
             "/api/sensor-name": self.handle_sensor_name,
             "/api/notifications": self.handle_notifications,
             "/api/notifications/test": self.handle_notifications_test,
+            "/api/settings": self.handle_settings,
             "/api/sensors/pair": self.handle_sensors_pair,
             "/api/sensors/assign": self.handle_sensors_assign,
             "/api/sensors/remove": self.handle_sensors_remove,
@@ -1432,11 +1587,22 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
     def handle_notifications_test(self, data: dict):
         if data.get("app_url"):
             configure_notifications(app_url=data["app_url"])
-        ok = send_notification("Halo test", "Door alerts are working. You'll be notified when the garage door "
-                               "opens, closes or is left open.", tags="tada", force=True)
-        if not ok:
+        if not NOTIFY["enabled"]:
             return self.send_json({"success": False, "error": "Turn on door alerts first"}, 400)
-        self.send_json({"success": True, "message": "Test notification sent"})
+        err = send_notification("Halo test", f"Door alerts are working ({fmt_clock()}). You'll be notified when the "
+                                "garage door opens, closes or is left open.", tags="tada", wait=True)
+        if err:
+            return self.send_json({"success": False, "error": err}, 502)
+        self.send_json({"success": True, "message": "Delivered to ntfy"})
+
+    def handle_settings(self, data: dict):
+        if "timezone" in data:
+            try:
+                set_timezone(str(data["timezone"]))
+            except ValueError as e:
+                return self.send_json({"success": False, "error": str(e)}, 400)
+            notify_change()
+        self.send_json({"success": True, "timezone": tz_public()})
 
     def handle_sensors_pair(self, data: dict):
         try:
@@ -1591,6 +1757,7 @@ def build_status(remote_mgr: RemoteManager, radio: CC1101) -> dict:
     moving = d["state"] in ("OPENING", "CLOSING")
     return {
         "app": APP_NAME,
+        "timezone": tz_public(),
         "name": cfg.get("name", "Virtual Remote"),
         "frequency_mhz": cfg.get("frequency_mhz", 315.0),
         "protocol": "Security+ 1.0",
@@ -1657,6 +1824,12 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
         radio.setup_security_plus_315mhz(packet_len=50)
     refresh_hw_state(radio, full=True)
 
+    tzname = remote_mgr.config.get("timezone") or DEFAULT_TZ
+    if valid_timezone(tzname):
+        SETTINGS["timezone"] = tzname
+    if not tz_database_ok():
+        logger.warning("[Time] No time-zone database found; install it with: sudo apt install tzdata "
+                       "(or pip install tzdata). Times fall back to UTC until then.")
     saved_n = remote_mgr.config.get("notifications") or {}
     with _notify_lock:
         NOTIFY.update({k: v for k, v in saved_n.items() if k in NOTIFY})
