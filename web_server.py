@@ -26,7 +26,9 @@ import urllib.error
 import urllib.request
 import logging
 import re
+import errno
 import math
+import signal
 import shutil
 import subprocess
 import sys
@@ -2332,6 +2334,107 @@ def _code_watcher(server):
             radio_lock.release()                        # only reached if execv failed
 
 
+# ── Port already in use ───────────────────────────────────────────────────────
+# If an older copy of Halo is still running (started by hand, from cron, or an
+# old service), it keeps port 8080 and the app keeps talking to the old code.
+# The new Halo stops that older copy and takes over. Any other program is left
+# alone, with a clear message saying what it is.
+HALO_CMD_RE = re.compile(r"(garage_door\.py\b.*\bweb\b|web_server\.py)")
+
+
+def _port_owners(port: int, proc: str = "/proc"):
+    """[(pid, command line)] of processes listening on a TCP port (Linux /proc).
+    Processes Halo isn't allowed to inspect (e.g. started with sudo) are counted as None."""
+    inodes = set()
+    for name in ("tcp", "tcp6"):
+        try:
+            with open(os.path.join(proc, "net", name)) as f:
+                rows = f.read().splitlines()[1:]
+        except OSError:
+            continue
+        for row in rows:
+            cols = row.split()
+            if len(cols) > 9 and cols[3] == "0A" and int(cols[1].rsplit(":", 1)[1], 16) == port:
+                inodes.add(cols[9])                        # state 0A = LISTEN
+    if not inodes:
+        return []
+    owners, hidden = [], False
+    try:
+        pids = [d for d in os.listdir(proc) if d.isdigit() and int(d) != os.getpid()]
+    except OSError:
+        return []
+    for pid in pids:
+        fd_dir = os.path.join(proc, pid, "fd")
+        try:
+            fds = os.listdir(fd_dir)
+        except PermissionError:
+            hidden = True
+            continue
+        except OSError:
+            continue
+        for fd in fds:
+            try:
+                link = os.readlink(os.path.join(fd_dir, fd))
+            except OSError:
+                continue
+            if link.startswith("socket:[") and link[8:-1] in inodes:
+                try:
+                    with open(os.path.join(proc, pid, "cmdline"), "rb") as f:
+                        cmd = f.read().replace(bytes([0]), b" ").decode(errors="replace").strip()
+                except OSError:
+                    cmd = "?"
+                owners.append((int(pid), cmd))
+                break
+    if not owners and hidden:
+        owners.append((None, None))                        # held by a process we can't see
+    return owners
+
+
+def _stop_old_halo(pid: int, cmd: str, port: int) -> bool:
+    logger.warning(f"Port {port} is held by an older copy of Halo (PID {pid}: {cmd}). Stopping it so this "
+                   f"version can take over.")
+    try:
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(40):                                # up to 8 s to exit cleanly
+            time.sleep(0.2)
+            os.kill(pid, 0)
+        os.kill(pid, getattr(signal, "SIGKILL", signal.SIGTERM))
+        time.sleep(0.5)
+        return True
+    except ProcessLookupError:
+        return True                                        # it exited
+    except PermissionError:
+        logger.error(f"Not allowed to stop PID {pid} (it was probably started with sudo). Stop it with: sudo kill {pid}")
+        return False
+
+
+def _bind_http(host: str, port: int):
+    for attempt in range(3):
+        try:
+            return ThreadingHTTPServer((host, port), HaloRequestHandler)
+        except OSError as e:
+            in_use = e.errno == errno.EADDRINUSE or getattr(e, "winerror", None) in (10048, 10013)
+            if not in_use or attempt == 2:
+                raise
+            owners = _port_owners(port)
+            halos = [(p, c) for p, c in owners if p and c and HALO_CMD_RE.search(c)]
+            if owners and len(halos) == len(owners):
+                if all(_stop_old_halo(p, c, port) for p, c in halos):
+                    continue
+            if owners and owners[0][0] is None:
+                who = "a program Halo isn't allowed to inspect (probably started with sudo)"
+            elif owners:
+                who = "; ".join(f"PID {p}: {c}" for p, c in owners)
+            else:
+                who = "another program"
+            msg = (f"Port {port} is already in use by {who}. Halo can't start until it's stopped. "
+                   f"Find it with: sudo ss -ltnp 'sport = :{port}'  then: sudo kill <PID>. "
+                   f"Or run Halo on another port with --port.")
+            logger.error(msg)
+            print(msg, file=sys.stderr)
+            raise SystemExit(1)
+
+
 def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
                spi_bus: int = 0, spi_device: int = 0,
                tx_mode: str = "fifo", gdo0_gpio: int = 24):
@@ -2408,7 +2511,7 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
 
     ThreadingHTTPServer.allow_reuse_address = True
     ThreadingHTTPServer.daemon_threads = True   # SSE streams never block shutdown
-    server = ThreadingHTTPServer((host, port), HaloRequestHandler)
+    server = _bind_http(host, port)
 
     local_ip = get_local_ip()
     print("=" * 56)

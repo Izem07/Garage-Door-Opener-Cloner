@@ -202,6 +202,18 @@ Open apps reconnect within a second and load the new page by themselves.
 
 To turn self-restart off, set `"auto_restart_on_update": false` in `remote_config.json`.
 
+### "Address already in use" / the app still shows old behaviour
+This means another copy of Halo is still running on port 8080 (for example one started by hand with `python3 garage_door.py web`), so the app keeps talking to old code and the new one can't start.
+
+* **Halo fixes this itself:** when it finds an older copy of Halo holding the port, it stops it and takes over. Your service retries every 5 s, so this happens automatically after a `git pull`.
+* **If the port is held by something else** (or a copy started with `sudo`), Halo leaves it alone and logs exactly what it is. To see and stop it yourself:
+  ```bash
+  sudo ss -ltnp 'sport = :8080'
+  sudo kill <PID>
+  ```
+* **Check the right version is running:** `curl -s localhost:8080/api/status | grep -o '"app_build"'` prints `"app_build"`.
+* **Service name:** older installs use `garage-door.service`; the README's setup creates `halo.service`. Use whichever `systemctl status` finds.
+
 ---
 
 ## Pairing
