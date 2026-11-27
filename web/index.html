@@ -47,6 +47,9 @@
   --tile-on:rgba(255,255,255,.92); --tile-on-label:#000; --shadow:none; color-scheme:dark;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+/* Taps fire immediately: no double-tap-zoom wait, no text selection on controls */
+html{touch-action:manipulation}
+button,.switch,.seg,.tile,.row{-webkit-user-select:none;user-select:none;touch-action:manipulation}
 html,body{margin:0;background:var(--bg);color:var(--label);font:17px/1.29 var(--font);
   -webkit-font-smoothing:antialiased;letter-spacing:-.41px}
 button{font:inherit;color:inherit;letter-spacing:inherit;border:0;background:none;padding:0;cursor:pointer}
@@ -55,8 +58,7 @@ svg.i{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 /* ── Layout ─────────────────────────────────────────── */
 .app{min-height:100vh;padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left)}
 .view{display:none;padding:0 16px calc(96px + env(safe-area-inset-bottom));max-width:720px;margin:0 auto}
-.view.active{display:block;animation:fade .25s ease}
-@keyframes fade{from{opacity:.4}to{opacity:1}}
+.view.active{display:block}
 
 /* Compact nav bar (appears on scroll) */
 .navbar{position:fixed;inset:0 0 auto 0;z-index:20;padding-top:env(safe-area-inset-top);
@@ -110,10 +112,10 @@ svg.i{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-l
 .section-h{font-size:22px;font-weight:700;letter-spacing:.35px;margin:28px 4px 10px}
 .tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
 .tile{display:flex;align-items:center;gap:12px;min-height:72px;padding:12px 14px;border-radius:18px;text-align:left;
-  background:var(--cell);box-shadow:var(--shadow);transition:transform .12s,background .25s}
+  background:var(--cell);box-shadow:var(--shadow);transition:transform .1s,background .12s}
 .tile:active{transform:scale(.96)}
 .tile .ic{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:20px;
-  background:var(--fill);color:var(--label2);flex:none;transition:background .25s,color .25s}
+  background:var(--fill);color:var(--label2);flex:none;transition:background .12s,color .12s}
 .tile>span:last-child{min-width:0}
 .tile .t{font-size:15px;font-weight:600;letter-spacing:-.24px;line-height:20px;overflow:hidden;
   display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere}
@@ -247,7 +249,7 @@ button.row:active,a.row:active{background:var(--fill)}
   display:flex;align-items:center;gap:10px;padding:12px 18px;border-radius:99px;max-width:calc(100vw - 32px);
   background:var(--elev);box-shadow:0 8px 32px rgba(0,0,0,.18);font-size:15px;font-weight:500;letter-spacing:-.24px}
 .toast.show{transform:translate(-50%,0)}
-.toast svg{font-size:20px}
+.toast.err{color:var(--red)}
 
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
@@ -291,6 +293,7 @@ button.row:active,a.row:active{background:var(--fill)}
   <!-- HOME -->
   <main class="view active" id="view-home" data-title="Home">
     <div class="large"><h1>Halo</h1><p id="summary">Connecting…</p></div>
+    <div class="ac-line" id="updateLine" hidden style="margin-top:10px"><span id="updateText"></span></div>
 
     <section class="hero" id="hero">
       <div class="hero-top">
@@ -574,7 +577,7 @@ button.row:active,a.row:active{background:var(--fill)}
   <button class="cancel" onclick="closeAll()">Cancel</button>
 </div>
 
-<div class="toast" id="toast"><svg class="i" id="toastIc"><use href="#i-check"/></svg><span id="toastText"></span></div>
+<div class="toast" id="toast" role="status"><span id="toastText"></span></div>
 
 <script>
 "use strict";
@@ -636,7 +639,8 @@ const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
 let S = null;               // last status
 let lightDeadline = 0;      // ms epoch for courtesy light auto-off
-let busy = false;
+let lastServer = null;      // latest state from the Pi, before local taps are applied
+let lastDoorTap = 0;
 
 // ── Theme ────────────────────────────────────────────
 function setTheme(v) {
@@ -683,8 +687,7 @@ function confirmAction(title, msg, label, fn, label2, fn2, red = true) {
 let toastT;
 function toast(text, ok = true) {
   $("toastText").textContent = text;
-  $("toastIc").innerHTML = `<use href="#i-${ok ? "check" : "alert"}"/>`;
-  $("toastIc").style.color = ok ? "var(--green)" : "var(--red)";
+  $("toast").classList.toggle("err", !ok);              // plain text: no icons or emoji
   $("toast").classList.add("show");
   clearTimeout(toastT); toastT = setTimeout(() => $("toast").classList.remove("show"), 2600);
 }
@@ -701,22 +704,81 @@ async function api(path, body = {}) {
       body: JSON.stringify(body), signal: withTimeout(8000) });
   } catch (e) { throw new Error(e.name === "TimeoutError" ? "Halo didn't respond. Check your Wi-Fi." : "Can't reach Halo"); }
   const data = await res.json().catch(() => ({}));
+  if (res.status === 404 && (!data.code || data.code === "unknown_endpoint"))
+    throw new Error("Halo on the Pi is older than this app. It restarts itself after an update; " +
+                    "if it doesn't, run: sudo systemctl restart halo");
   if (!res.ok || data.success === false) throw new Error(data.error || `HTTP ${res.status}`);
   return data;
 }
-async function act(fn, okMsg) {
-  if (busy) return; busy = true;
-  try { const r = await fn(); if (okMsg) toast(typeof okMsg === "function" ? okMsg(r) : okMsg); if (!live) poll(); }
-  catch (e) { toast(e.message, false); }
-  finally { busy = false; }
+// ── Instant UI ───────────────────────────────────────
+// A tap changes the screen in the same frame. The command goes to the Pi in the
+// background. Until the Pi reports the new value, older updates can't flip the
+// screen back. If the command fails, the change is undone and the reason shown.
+const pending = new Map();                      // "door.state" -> {value, until}
+const getP = (o, p) => p.split(".").reduce((a, k) => a == null ? a : a[k], o);
+function setP(o, p, v) {
+  const ks = p.split("."); let a = o;
+  for (const k of ks.slice(0, -1)) { if (a[k] == null || typeof a[k] !== "object") a[k] = {}; a = a[k]; }
+  a[ks[ks.length - 1]] = v;
+}
+function overlay(d) {
+  if (!pending.size) return d;
+  const now = Date.now(), out = JSON.parse(JSON.stringify(d));
+  for (const [p, x] of pending) {
+    if (now > x.until || JSON.stringify(getP(d, p)) === JSON.stringify(x.value)) { pending.delete(p); continue; }
+    setP(out, p, x.value);
+  }
+  return out;
+}
+let APP_BUILD;
+function fromServer(d) {
+  // The page was updated on the Pi: load the new version right away.
+  if (d.app_build) {
+    if (APP_BUILD === undefined) APP_BUILD = d.app_build;
+    else if (d.app_build !== APP_BUILD) return location.reload();
+  }
+  lastServer = d;
+  render(overlay(d));
+  const u = d.update || {};
+  $("updateLine").hidden = !(u.restart_needed || u.error);
+  put("updateText", "text", u.error ? u.error
+    : "Halo was updated. It will restart itself shortly. If it doesn't, run: sudo systemctl restart halo");
+}
+function act(fn, okMsg, patch) {
+  const paths = Object.keys(patch || {});
+  paths.forEach(p => pending.set(p, { value: patch[p], until: Date.now() + 10000 }));
+  if (paths.length && lastServer) render(overlay(lastServer));          // same frame as the tap
+  return Promise.resolve().then(fn).then(r => {
+    // The Pi accepted it; its own update arrives within moments (or it was already so).
+    paths.forEach(p => { const x = pending.get(p); if (x) x.until = Math.min(x.until, Date.now() + 1500); });
+    if (okMsg) toast(typeof okMsg === "function" ? okMsg(r) : okMsg);
+    if (!live) poll();
+    return r;
+  }, e => {
+    paths.forEach(p => pending.delete(p));
+    if (lastServer) render(overlay(lastServer));                       // undo
+    toast(e.message, false);
+  });
 }
 const toggleDoor = () => {
-  const opening = S && (S.door.state === "OPEN" || S.door.state === "OPENING");
-  act(() => api(opening ? "/api/close" : "/api/open", { source: "Halo app" }));
+  if (!S) return;
+  if (S.security.remote_lock) return toast("Remote lock is on. Turn it off to use the door.", false);
+  if (Date.now() - lastDoorTap < 600) return;                // ignore an accidental double tap
+  lastDoorTap = Date.now();
+  const opening = S.door.state === "OPEN" || S.door.state === "OPENING";
+  act(() => api(opening ? "/api/close" : "/api/open", { source: "Halo app" }), null,
+      { "door.state": opening ? "CLOSING" : "OPENING" });
 };
-const toggleLight = () => act(() => api("/api/light", { source: "Halo app" }), "Light toggled");
-const toggleLock = () => act(() => api("/api/lock", { locked: !(S && S.security.remote_lock) }),
-  r => r.locked ? "Remote lock on" : "Remote lock off");
+const toggleLight = () => {
+  if (!S) return;
+  const on = !S.light.on;
+  act(() => api("/api/light", { source: "Halo app" }), null,
+      { "light.on": on, "light.auto_off_remaining_sec": on ? 270 : 0 });
+};
+const toggleLock = () => {
+  const locked = !(S && S.security.remote_lock);
+  act(() => api("/api/lock", { locked }), null, { "security.remote_lock": locked });
+};
 function pair(kind) {
   const btn = $(kind === "door" ? "pairDoorBtn" : "pairLightBtn"); const label = btn.textContent;
   btn.disabled = true; btn.textContent = "Transmitting…";
@@ -729,19 +791,21 @@ function submitSync() {
   closeAll(); act(() => api("/api/set-counter", { counter: v }), `Rolling code set to ${v}`);
 }
 const testRf = () => { toast("Transmitting test bursts…"); act(() => api("/api/test-rf", { duration: 3 }), r => r.message); };
-const setCar = present => act(() => api("/api/car", { present }), present ? "Car marked as in the garage" : "Car marked as away");
+const setCar = present => act(() => api("/api/car", { present }), null, { "car.state": present ? "present" : "away" });
 function doorSheet() {
   const st = S ? S.door.state : "CLOSED";
   actionSheet("Is the garage door open or closed?",
     `Halo shows it as ${st.toLowerCase()}. Correct it if the sensor is wrong. No signal is sent to the opener.`, [
-      { label: "It's Open", fn: () => act(() => api("/api/door/correct", { state: "open" }), "Door marked as open") },
-      { label: "It's Closed", fn: () => act(() => api("/api/door/correct", { state: "closed" }), "Door marked as closed") },
+      { label: "It's Open", fn: () => act(() => api("/api/door/correct", { state: "open" }), null,
+          { "door.state": "OPEN", "door.percent": 100, "sensor.state": "open" }) },
+      { label: "It's Closed", fn: () => act(() => api("/api/door/correct", { state: "closed" }), null,
+          { "door.state": "CLOSED", "door.percent": 0, "sensor.state": "closed" }) },
       { label: "Sensor Settings", fn: () => go("device", "sensorSec") },
     ]);
 }
 const fmtLen = cm => { const i = cm / 2.54; return `${(cm / 100).toFixed(2)} m (${Math.floor(i / 12)} ft ${Math.round(i % 12)} in)`; };
-const setDist = c => act(() => api("/api/distance/settings", c), c.enabled === true ? "Distance sensors on"
-  : c.enabled === false ? "Distance sensors off" : "Saved");
+const setDist = c => act(() => api("/api/distance/settings", c), null,
+  Object.fromEntries(Object.entries(c).map(([k, v]) => ["distance." + k, v])));
 $("dWidthSeg").onclick = e => e.target.dataset.v && setDist({ min_width_cm: +e.target.dataset.v });
 const calibrateDist = () => confirmAction("Is the garage empty?",
   "Move the car out and make sure nothing is under the sensors. Halo will remember this as the floor.",
@@ -771,8 +835,8 @@ function submitRename() {
 $("renameInput").addEventListener("keydown", e => e.key === "Enter" && submitRename());
 function setNotify(changes) {
   act(() => api("/api/notifications", { ...changes, app_url: location.origin }),
-    r => changes.enabled === true ? "Door alerts on. Subscribe in ntfy to receive them."
-       : changes.enabled === false ? "Door alerts off" : "Saved");
+    changes.enabled === true ? "Door alerts on. Subscribe in ntfy to receive them." : null,
+    Object.fromEntries(Object.entries(changes).map(([k, v]) => ["notifications." + k, v])));
 }
 $("nLeftSeg").onclick = e => e.target.dataset.v && setNotify({ left_open_minutes: +e.target.dataset.v });
 const testNotify = () => act(() => api("/api/notifications/test", { app_url: location.origin }),
@@ -831,13 +895,13 @@ function renderPairing() {
   $("foundList").hidden = !found.length;
   $("foundList").innerHTML = found.map(e => sensorRow(e, `closeAll();setTimeout(()=>sensorSheet('${e.mac}'),350)`)).join("");
 }
-const setBridge = on => act(() => api("/api/bridge", { watchdog: on }), on ? "Auto-reconnect on" : "Auto-reconnect off");
+const setBridge = on => act(() => api("/api/bridge", { watchdog: on }), null, { "bridge.watchdog": on });
 const restartBridge = () => act(() => api("/api/bridge/restart"), "Bridge restarted");
 // Auto-close
-const setAutoClose = changes => act(() => api("/api/auto-close", changes),
-  r => r.auto_close.enabled ? `Auto-close after ${r.auto_close.minutes} min` : "Auto-close off");
+const setAutoClose = changes => act(() => api("/api/auto-close", changes), null,
+  Object.fromEntries(Object.entries(changes).map(([k, v]) => ["auto_close." + k, v])));
 $("acSeg").onclick = e => e.target.dataset.v && setAutoClose({ minutes: +e.target.dataset.v });
-const holdAutoClose = () => act(() => api("/api/auto-close/hold"), "Keeping the door open");
+const holdAutoClose = () => act(() => api("/api/auto-close/hold"), null, { "auto_close.held": true });
 function tickAutoClose() {
   const ac = S && S.auto_close;
   const show = !!(ac && ac.enabled && ac.deadline && !ac.held);
@@ -878,7 +942,7 @@ function openTzSheet() {
 $("tzSearch").addEventListener("input", renderTzList);
 function chooseTz(z) {
   closeAll();
-  act(() => api("/api/settings", { timezone: z }), r => `Time zone: ${zoneLabel(z).city} (${r.timezone.abbr})`);
+  act(() => api("/api/settings", { timezone: z }), null, { "timezone.name": z });
 }
 function refreshTimes() {
   if (!S) return;
@@ -898,10 +962,10 @@ function refreshTimes() {
   }
 }
 const checkRadio = () => act(() => api("/api/radio/check"), r => r.radio.summary);
-const set24h = on => act(() => api("/api/settings", { clock_24h: on }), on ? "24-hour time on" : "24-hour time off");
+const set24h = on => act(() => api("/api/settings", { clock_24h: on }), null, { "timezone.clock_24h": on });
 const clearActivity = () => confirmAction("Clear all activity?",
   "This removes every event from the activity list. It can't be undone.", "Clear Activity",
-  () => act(() => api("/api/logs/clear"), "Activity cleared"));
+  () => act(() => api("/api/logs/clear"), null, { "recent_logs": [] }));
 const confirmReset = () => confirmAction("Generate a new remote ID?",
   "The opener will stop responding until you pair Halo again.", "Generate New ID",
   () => act(() => api("/api/reset-remote", { start_counter: 1000 }), "New remote ID. Pair it now."));
@@ -1151,14 +1215,14 @@ function setConn(mode) {
   put("connText", "text", mode === "off" ? "Offline" : mode === "sim" ? "Simulation" : "Live");
 }
 async function poll() {
-  try { const r = await fetch("/api/status", { cache: "no-store", signal: withTimeout(3000) }); if (r.ok) render(await r.json()); }
+  try { const r = await fetch("/api/status", { cache: "no-store", signal: withTimeout(3000) }); if (r.ok) fromServer(await r.json()); }
   catch { setConn("off"); }
 }
 function connect() {
   if (es || document.hidden) return;
   if (!window.EventSource) { poll(); pollT = setInterval(poll, 3000); return; }
   es = new EventSource("/api/events");
-  es.onmessage = e => { live = true; clearInterval(pollT); pollT = null; render(JSON.parse(e.data)); };
+  es.onmessage = e => { live = true; clearInterval(pollT); pollT = null; fromServer(JSON.parse(e.data)); };
   es.onerror = () => {
     live = false; setConn("off");
     if (!pollT) pollT = setInterval(poll, 2000);   // EventSource keeps retrying in the background

@@ -12,6 +12,7 @@ Halo drives Chamberlain, LiftMaster and Craftsman openers with the **purple Lear
 
 * **Real virtual remote.** Generates valid Security+ 1.0 rolling codes and transmits them from the CC1101's hardware FIFO, so Linux scheduling jitter never touches the waveform.
 * **The Halo app.** An iOS-style web app you add to your Home Screen: a live door view, Apple Home–style accessory tiles, an activity feed and a full device admin page (pairing, rolling-code resync, RF test, new remote ID). It follows the system light/dark setting and becomes an iPad-style sidebar layout on wide screens.
+* **Instant.** Every tap changes the screen immediately (measured at 1-4 ms). The command goes to the Pi in the background, and if it fails the change is undone with a clear message.
 * **Live, not polled.** The server pushes state over Server-Sent Events only when something changes. The app is idle while nothing happens and disconnects when it is in the background.
 * **Courtesy light.** One tap presses the opener's light button (remote button 1). Halo can't see the light, so it shows **Possibly on**, with Chamberlain's 4.5-minute auto-off as a countdown.
 * **Door alerts.** Notifications when the garage door opens, closes or is left open, with a Close button. No Apple home hub needed.
@@ -188,6 +189,18 @@ sudo systemctl enable --now halo.service
 ```
 
 > Upgrading from the old `garage-door.service`? Run `sudo systemctl disable --now garage-door.service` first so both don't try to bind port 8080.
+
+### Updating Halo
+Copy the new files onto the Pi (e.g. `git pull`). **Halo restarts itself**:
+1. It notices its code changed and waits until the copy has finished.
+2. It checks the new code compiles. If it doesn't, Halo keeps running the old version and shows the error in the app.
+3. It waits until the door isn't moving and the radio isn't transmitting, then restarts in place.
+
+Open apps reconnect within a second and load the new page by themselves.
+
+> **One-time step for this update:** a Halo that's already running predates self-restart, so restart it once by hand: `sudo systemctl restart halo` (or `garage-door` if you still use the old service name). Until then you'll see **"Unknown API endpoint"** (the app is newer than the running server), and alerts keep the old emoji. Both are fixed by that one restart.
+
+To turn self-restart off, set `"auto_restart_on_update": false` in `remote_config.json`.
 
 ---
 

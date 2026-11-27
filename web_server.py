@@ -29,6 +29,7 @@ import re
 import math
 import shutil
 import subprocess
+import sys
 import threading
 from collections import deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -249,11 +250,16 @@ def _light_on_for_motion(reason: str):
 _travel_id = 0
 
 
+_closed_count = 0          # increments every time the door reaches CLOSED
+
+
 def set_door_state(is_open: bool):
     """Ground-truth update (sensor/integration): door is fully OPEN or CLOSED."""
-    global _travel_id
+    global _travel_id, _closed_count
     with state_lock:
         _travel_id += 1                      # cancel any simulated travel
+        if not is_open and door_info["state"] != "CLOSED":
+            _closed_count += 1
         door_info["state"] = "OPEN" if is_open else "CLOSED"
         door_info["percent"] = 100 if is_open else 0
         door_info["updated_at"] = _now_iso()
@@ -317,6 +323,9 @@ def _run_door_travel(target: str, my_id: int):
                 return                       # superseded by a newer command / sensor
             door_info["percent"] = int(round(start + (end - start) * i / steps))
             if i == steps:
+                if target == "CLOSED" and door_info["state"] != "CLOSED":
+                    global _closed_count
+                    _closed_count += 1
                 door_info["state"] = target
                 door_info["updated_at"] = _now_iso()
                 save_door_state()
@@ -1043,7 +1052,7 @@ def auto_close_public() -> dict:
 
 
 def _auto_close_worker():
-    last_version, prev_closed, opened_at = None, None, None
+    last_version, prev_closed, opened_at, seen_closes = None, None, None, _closed_count
     while True:
         wait = 30.0
         if AC["deadline"]:
@@ -1055,8 +1064,12 @@ def _auto_close_worker():
         with state_lock:
             state = door_info["state"]
             sensor = dict(door_info["sensor"])
+            closes = _closed_count
         closed = state == "CLOSED"
         now = time.time()
+        if closes != seen_closes:                    # it closed since we last looked (maybe briefly)
+            seen_closes = closes
+            prev_closed = True
         if prev_closed is None or (prev_closed and not closed):          # door opened (or startup)
             opened_at = None if closed else now
             AC.update(held=False, warned=False, attempted=False, blocked=None)
@@ -1102,15 +1115,21 @@ def _auto_close_worker():
             continue
 
         AC.update(attempted=True, deadline=None, blocked=None)
-        try:
-            press_door(source="Auto-close", allow_locked=True)
-        except Exception as e:
-            add_log("Auto-Close", f"Couldn't send close: {e}", False)
-            send_notification("Auto-Close Failed",
-                              f"Halo could not send the close command. Reason: {e}. The garage door is still open.",
-                              priority="high", close_action=True)
-            continue
-        threading.Thread(target=_verify_auto_close, daemon=True).start()
+        # Send on its own thread: the radio burst takes ~2 s and this watcher must
+        # keep seeing door changes meanwhile.
+        threading.Thread(target=_send_auto_close, daemon=True).start()
+
+
+def _send_auto_close():
+    try:
+        press_door(source="Auto-close", allow_locked=True)
+    except Exception as e:
+        add_log("Auto-Close", f"Couldn't send close: {e}", False)
+        send_notification("Auto-Close Failed",
+                          f"Halo could not send the close command. Reason: {e}. The garage door is still open.",
+                          close_action=True)
+        return
+    _verify_auto_close()
 
 
 def _verify_auto_close():
@@ -1165,9 +1184,22 @@ def press_door(repeats=None, source: str = None, allow_locked: bool = False) -> 
             raise LockedError("Remote lock is on")
     mgr = CTX["remote_mgr"]
     rolling, fixed = mgr.get_next_codes()
-    transmit(rolling, fixed, default_repeats(repeats))
+    # Every screen (Halo app, Apple Home) sees the door start moving now, not
+    # after the ~1-2 s radio burst. If the radio fails, the change is undone.
+    with state_lock:
+        before = (door_info["state"], door_info["percent"])
     _last_door_cmd.update(source=source or "Halo", at=time.time())
     new_state = start_door_travel()
+    try:
+        transmit(rolling, fixed, default_repeats(repeats))
+    except Exception:
+        global _travel_id
+        with state_lock:
+            _travel_id += 1                                 # stop the simulated travel
+            door_info["state"], door_info["percent"] = before
+            save_door_state()
+        notify_change()
+        raise
     new_rolling, _ = mgr.peek_codes()
     add_log("Door", f"Sent open/close from {source or 'Halo'} (code {rolling}, next {new_rolling})", True)
     return {"door_state": new_state, "door_percent": door_info["percent"],
@@ -1195,9 +1227,14 @@ def press_light(repeats=None, source: str = None) -> dict:
     """
     mgr = CTX["remote_mgr"]
     rolling, fixed = mgr.get_button_codes(button=1)
-    transmit(rolling, fixed, default_repeats(repeats))
     likely_on = not door_info["light_on"]
-    set_light(likely_on, "Light", f"Toggled from {source or 'Halo'} (now possibly {'on' if likely_on else 'off'})")
+    set_light(likely_on)                                    # every screen updates now
+    try:
+        transmit(rolling, fixed, default_repeats(repeats))
+    except Exception:
+        set_light(not likely_on)                            # radio failed: undo
+        raise
+    add_log("Light", f"Toggled from {source or 'Halo'} (now possibly {'on' if likely_on else 'off'})", True)
     new_rolling, _ = mgr.peek_codes()
     return {"light_on": likely_on, "estimated": True,
             "auto_off_remaining_sec": LIGHT_AUTO_OFF_SEC if likely_on else 0,
@@ -1753,7 +1790,9 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
         if route:
             route(data)
         else:
-            self.send_json({"success": False, "error": "Unknown API endpoint"}, 404)
+            self.send_json({"success": False, "code": "unknown_endpoint",
+                            "error": f"Unknown API endpoint {path}. If you just updated Halo, it restarts itself "
+                                     "within a few seconds; otherwise run: sudo systemctl restart halo"}, 404)
 
     # static
     def serve_static(self, path: str):
@@ -2161,6 +2200,8 @@ def build_status(remote_mgr: RemoteManager, radio: CC1101) -> dict:
     return {
         "app": APP_NAME,
         "timezone": tz_public(),
+        "update": dict(UPDATE),
+        "app_build": _app_build(),
         "name": cfg.get("name", "Virtual Remote"),
         "frequency_mhz": cfg.get("frequency_mhz", 315.0),
         "protocol": "Security+ 1.0",
@@ -2213,6 +2254,82 @@ def get_local_ip() -> str:
         return socket.gethostbyname(socket.gethostname())
     except OSError:
         return "127.0.0.1"
+
+
+# When new code is copied onto the Pi, the page updates at once but the running
+# Python process doesn't. The app would then call endpoints the old process
+# doesn't have ("Unknown API endpoint"). So Halo watches its own code and, once
+# a copy has finished and the new code compiles, restarts itself in place when
+# the door isn't moving and the radio is idle.
+CODE_FILES = [os.path.join(BASE_DIR, f) for f in
+              ("web_server.py", "cc1101.py", "security_plus.py", "remote_manager.py", "garage_door.py")]
+UPDATE = {"restart_needed": False, "error": None, "auto_restart": True}
+
+
+def _code_signature():
+    sig = []
+    for f in CODE_FILES:
+        try:
+            st = os.stat(f)
+            sig.append((f, st.st_mtime_ns, st.st_size))
+        except OSError:
+            sig.append((f, None, None))
+    return sig
+
+
+_START_SIG = _code_signature()
+
+
+def _app_build():
+    """Fingerprint of the app page, so open screens reload themselves after an update."""
+    try:
+        return get_static(os.path.join(WEB_DIR, "index.html"))[3]
+    except OSError:
+        return None
+
+
+def _code_watcher(server):
+    last_bad = None
+    while True:
+        time.sleep(3)
+        sig = _code_signature()
+        if sig == _START_SIG:
+            continue
+        time.sleep(2)
+        if _code_signature() != sig:
+            continue                                   # still being copied
+        try:
+            for f, mt, _ in sig:
+                if mt is not None:
+                    with open(f, encoding="utf-8") as fh:
+                        compile(fh.read(), f, "exec")      # syntax check only; writes nothing
+        except (SyntaxError, ValueError, OSError) as e:
+            msg = f"The updated code has an error, so Halo is still running the previous version: {str(e)[:200]}"
+            if msg != last_bad:
+                last_bad = msg
+                UPDATE.update(error=msg, restart_needed=True)
+                add_log("Halo", msg, False)
+            continue
+        UPDATE.update(restart_needed=True, error=None)
+        notify_change()
+        if not UPDATE["auto_restart"] or os.name != "posix":
+            continue                                   # e.g. Windows dev machine: tell the app instead
+        with state_lock:
+            moving = door_info["state"] in ("OPENING", "CLOSING")
+        if moving or not radio_lock.acquire(timeout=1):
+            continue                                   # try again in a few seconds
+        try:
+            logger.info("[Update] New code installed; restarting Halo")
+            with state_lock:
+                save_door_state()
+            server.server_close()
+            try:
+                CTX["radio"].close()
+            except Exception:
+                pass
+            os.execv(sys.executable, [sys.executable] + sys.argv)
+        finally:
+            radio_lock.release()                        # only reached if execv failed
 
 
 def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
@@ -2304,6 +2421,8 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
     print("  Press Ctrl+C to stop.\n")
     add_log("Halo", f"Server started on port {port}", success=True)
 
+    UPDATE["auto_restart"] = bool(remote_mgr.config.get("auto_restart_on_update", True))
+    threading.Thread(target=_code_watcher, args=(server,), daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
