@@ -18,6 +18,8 @@ Halo drives Chamberlain, LiftMaster and Craftsman openers with the **purple Lear
 * **Local-first.** Door, light, sensor and HomeKit all run on your LAN. Losing the internet or Tailscale never stops the garage, and Halo reconnects within seconds when the network blips.
 * **Ground-truth sensing.** A Wyze Sense v2 contact sensor over MQTT (or any integration that POSTs to `/api/sensor`) overrides the simulated door position.
 * **Is the car home?** An optional Wyze motion sensor in the bay lets Halo estimate whether the car is in the garage, and you can correct it with a tap.
+* **Auto-close.** Closes the door after it's been left open, but only when the contact sensor confirms it's open, after a warning with **Keep open**, and not while someone's moving in the garage.
+* **Sensors & bridge.** Pair Wyze sensors and choose what each one does from the app. If the USB bridge drops or is replugged, Halo reconnects it automatically.
 * **Remote lock.** While it is on, every door command is refused, including from HomeKit.
 * **Apple Home & Siri.** Bundled Homebridge plugin exposes the door and the light.
 
@@ -133,6 +135,8 @@ Halo keeps the rolling code in this file. Optional keys:
 | `repeats_per_press` | `8` | Bursts per button press |
 | `sensor_mac` | — | Door contact sensor MAC. When set, only this sensor can change the door state |
 | `car_sensor_mac` | — | Motion sensor MAC used for car presence |
+| `auto_close.enabled` / `minutes` | off / `10` | Close the door if left open (set from the app) |
+| `bridge.watchdog` / `container` | on / `wyzesense2mqtt` | Wyze bridge auto-reconnect |
 | `notifications.*` | off | Door alerts: `enabled`, `server`, `topic`, `left_open_minutes`, `on_open`, `on_close` (set from the app) |
 | `sensor_name` / `car_sensor_name` | `Garage Door Sensor` / `Car Bay Motion` | Friendly names shown in the app and activity log (rename in **Device → Name**) |
 | `car_detection.before_open_sec` / `after_close_sec` | `120` / `120` | How far before opening and after closing Halo looks for motion |
@@ -245,21 +249,13 @@ AABB1122:            # your motion sensor's MAC (printed on the sensor)
   sensor_type: motion
 ```
 
-Then tell Halo which sensor is which in `remote_config.json`:
+The easiest way to tell Halo which sensor is which is from the app (see [Adding sensors](#adding-sensors-from-the-app)). You can also set it in `remote_config.json`:
 ```json
 "sensor_mac": "77CB8338",
 "car_sensor_mac": "AABB1122"
 ```
 
 Each sensor shows up in the app under a friendly name (**Garage Door Sensor** and **Car Bay Motion** by default). To rename one, tap **Device → Name** (or **Motion Sensor**). The sensor's ID (MAC) is still listed underneath so you can match it to the label on the sensor.
-
-Stable device node and auto-restart when the bridge re-enumerates:
-```bash
-sudo bash -c 'cat << "EOF" > /etc/udev/rules.d/99-wyzesense.rules
-KERNEL=="hidraw*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="e024", MODE="0666", SYMLINK+="wyzesense", TAG+="systemd", RUN+="/usr/bin/docker restart wyzesense2mqtt"
-EOF'
-sudo udevadm control --reload-rules && sudo udevadm trigger
-```
 
 ```bash
 sudo docker run -d --name=wyzesense2mqtt --restart=unless-stopped --privileged --net=host \
@@ -269,6 +265,39 @@ sudo docker run -d --name=wyzesense2mqtt --restart=unless-stopped --privileged -
 ```
 
 Halo understands both the classic `wyzesense2mqtt/<MAC>` topics and the newer `ws2m/sensor/<MAC>` layout.
+
+### Adding sensors from the app
+**Device → Sensors** lists every Wyze sensor the bridge knows about, with its type, battery and last report.
+
+* **Add Sensor:** tap **Start Pairing**, then hold the new sensor's reset button with a pin until its light blinks. It appears in the sheet within a few seconds. Tap it and choose **Use for Garage Door** (contact sensors) or **Use for Car** (motion sensors). That's saved to `remote_config.json` for you.
+* **Tap any sensor** to change its job, rename it, stop using it, or **Remove from Bridge** (unpairs it).
+* Pairing goes through the Wyze bridge (`wyzesense2mqtt/scan` and `/remove` over MQTT), so the MQTT broker and wyzesense2mqtt must be running.
+
+### Bridge auto-reconnect
+USB bridges drop off: a loose cable, a power blip, or the Pi renumbering USB devices. Halo watches for this every 15 s and fixes it:
+
+| What Halo sees | What it does |
+| :--- | :--- |
+| Bridge unplugged | Shows **Unplugged** in the app, then restarts wyzesense2mqtt as soon as it's plugged back in |
+| wyzesense2mqtt container stopped | Restarts it |
+| Restart doesn't work | Tries again after 30 s, 1, 2, 5, then every 15 min, so a broken bridge isn't hammered |
+
+Sensors are paired inside the bridge itself, so after a reconnect they report again on their own with **no re-pairing**. **Device → Wyze Bridge** shows the status and a **Restart Bridge Now** button, and lets you turn auto-reconnect off.
+
+Halo needs permission to restart the container. Give its user Docker access once, then reboot:
+```bash
+sudo usermod -aG docker izem07
+```
+
+Also install this udev rule. It gives the bridge a stable name and restarts wyzesense2mqtt the instant the bridge is plugged in, even if Halo isn't running. `systemd-run --no-block` keeps udev from stalling while Docker restarts:
+```bash
+sudo bash -c 'cat << "EOF" > /etc/udev/rules.d/99-wyzesense.rules
+KERNEL=="hidraw*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="e024", MODE="0666", SYMLINK+="wyzesense", TAG+="systemd", RUN+="/usr/bin/systemd-run --no-block /usr/bin/docker restart wyzesense2mqtt"
+EOF'
+sudo udevadm control --reload-rules && sudo udevadm trigger
+```
+
+Different container name or no Docker? Set `bridge.container`, or your own `bridge.restart_command` / `bridge.status_command`, in `remote_config.json`.
 
 No Wyze hardware? Any integration can report the door with `POST /api/sensor {"state": "open"}` and motion with `POST /api/motion {"motion": true}`.
 
@@ -308,6 +337,22 @@ What you get in Apple Home:
 
 **Notifications:** Apple Home only sends accessory notifications through a home hub (Apple TV or HomePod). Without one, use Halo's own [door alerts](#door-alerts-notifications) instead.
 * Away from home: an Apple Home hub, or the Halo app over Tailscale. See [Local-first](#local-first-no-internet-or-tailscale-required).
+
+---
+
+## Auto-Close
+
+Halo can close the garage door if it's been left open. Turn it on in **Device → Auto-Close** and pick 5, 10, 15, 30 or 60 minutes.
+
+The opener's remote is a toggle: the same press opens a closed door. So auto-close has strict rules:
+
+* **It only closes when the contact sensor confirms the door is open.** If Halo can't confirm it, it waits and tells you why. It never acts on a guess.
+* **It warns you first.** A minute before closing, the Home screen shows **Closing in 0:59 · Keep Open**, and if [door alerts](#door-alerts-notifications) are on you get a notification with a **Keep open** button. Keep Open lasts until the door next closes.
+* **It waits while someone's in the garage.** If the car motion sensor saw movement in the last 2 minutes, it holds off and checks again a minute later.
+* **It tries once.** If the door is still open shortly after (for example, the safety sensors saw something and the opener reversed), you get a **Garage door did NOT close** alert and Halo doesn't try again until the next time the door opens.
+* It works even with the remote lock on, because closing is the safe direction.
+
+> ⚠️ Closing a door nobody is watching is only safe with working **safety sensors** (the photo-eyes near the floor). Test them before relying on auto-close: block the beam while the door is closing and it must reverse.
 
 ---
 
@@ -415,6 +460,13 @@ Global flags: `--config`, `--spi-bus`, `--spi-device`, `--mode fifo|async`, `--g
 | `/api/light/state` | POST | `{"on": true}` | Report light state from an external sensor (no RF) |
 | `/api/notifications` | POST | `{"enabled": true, "left_open_minutes": 10}` | Door alert settings (also `on_open`, `on_close`, `server`, `topic`) |
 | `/api/notifications/test` | POST | — | Send a test alert |
+| `/api/auto-close` | POST | `{"enabled": true, "minutes": 10}` | Auto-close settings |
+| `/api/auto-close/hold` | POST | — | Keep the door open until it next closes |
+| `/api/sensors/pair` | POST | `{"seconds": 60}` | Put the Wyze bridge in pairing mode |
+| `/api/sensors/assign` | POST | `{"mac": "77CB8338", "role": "door"}` | Use a sensor for `door`, `car` or `none` |
+| `/api/sensors/remove` | POST | `{"mac": "77CB8338"}` | Unpair a sensor from the bridge |
+| `/api/bridge/restart` | POST | — | Restart the Wyze bridge now |
+| `/api/bridge` | POST | `{"watchdog": true}` | Turn bridge auto-reconnect on or off |
 | `/api/sensor` | POST | `{"state": "open"}` or `{"contact": false}` | Ground-truth door state |
 | `/api/motion` | POST | `{"motion": true}` | Report car-bay motion from any integration |
 | `/api/car` | POST | `{"present": true}` | Set car presence (manual correction or a distance sensor) |

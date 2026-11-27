@@ -143,6 +143,17 @@ button.row:active,a.row:active{background:var(--fill)}
 .row .chev{color:var(--label3);font-size:14px;margin-right:-4px}
 .row.tint .lbl{color:var(--blue)}
 .list:not(.notify-on) .nmore{display:none!important}
+.list:not(.ac-on) .acmore{display:none!important}
+.ac-line{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;padding:10px 12px;border-radius:12px;
+  background:color-mix(in srgb,var(--orange) 14%,transparent);color:var(--orange);font-size:15px;font-weight:600;letter-spacing:-.24px}
+.ac-line[hidden]{display:none}
+.ac-line button{background:var(--orange);color:#fff;border-radius:99px;padding:6px 12px;font-size:13px;font-weight:600}
+.pill{font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;background:var(--fill);color:var(--label2);margin-left:6px;vertical-align:1px}
+.pill.door{background:color-mix(in srgb,var(--green) 18%,transparent);color:var(--green)}
+.pill.car{background:color-mix(in srgb,var(--blue) 18%,transparent);color:var(--blue)}
+.found{margin:14px 0 0;background:var(--cell);border-radius:12px;overflow:hidden}
+.spinner{width:18px;height:18px;border-radius:50%;border:2.5px solid var(--fill2);border-top-color:var(--blue);animation:spin .8s linear infinite;flex:none}
+@keyframes spin{to{transform:rotate(360deg)}}
 .row.destructive .lbl{color:var(--red)}
 .ok{color:var(--green)!important}.warn{color:var(--orange)!important}.bad{color:var(--red)!important}
 
@@ -225,7 +236,7 @@ button.row:active,a.row:active{background:var(--fill)}
 .asheet .msg{padding:14px 16px;text-align:center;font-size:13px;color:var(--label2);border-bottom:.5px solid var(--sep)}
 .asheet .msg b{display:block;font-size:13px;font-weight:600;margin-bottom:2px}
 .asheet .grp button{display:block;width:100%;height:57px;font-size:20px;color:var(--blue);letter-spacing:.38px}
-.asheet .grp button+button{border-top:.5px solid var(--sep)}
+.asheet .grp button+button,.asheet .grp #asButtons button{border-top:.5px solid var(--sep)}
 .asheet .red{color:var(--red)!important}
 .asheet .cancel{margin-top:8px;background:var(--elev)!important;font-weight:600}
 .asheet .cancel{display:block;width:100%;height:57px;font-size:20px;color:var(--blue);border-radius:14px}
@@ -310,6 +321,7 @@ button.row:active,a.row:active{background:var(--fill)}
           </g>
         </g>
       </svg>
+      <div class="ac-line" id="acLine" hidden><span id="acText">Closing soon</span><button onclick="holdAutoClose()">Keep Open</button></div>
       <div class="progress"><i id="doorBar"></i></div>
       <button class="btn" id="doorBtn" onclick="toggleDoor()"><svg class="i"><use href="#i-garage"/></svg><span>Open</span></button>
     </section>
@@ -388,6 +400,22 @@ button.row:active,a.row:active{background:var(--fill)}
     </div>
     <div class="group-f" id="carNote">Halo estimates whether the car is home from motion around each door cycle: motion before opening means someone drove out, motion after closing means someone got out. Tap Car to correct it.</div>
 
+    <div class="group-h" id="sensorsSec">Sensors</div>
+    <div class="list icons" id="sensorList"></div>
+    <div class="list icons" style="margin-top:8px">
+      <button class="row tint" onclick="openSheet('addSensor')"><span class="sq" style="background:var(--green)"><svg class="i"><use href="#i-link"/></svg></span><span class="lbl">Add Sensor</span></button>
+    </div>
+    <div class="group-f">Tap a sensor to choose what it does: garage door contact, or car motion.</div>
+
+    <div class="group-h" id="bridgeSec">Wyze Bridge</div>
+    <div class="list">
+      <div class="row"><span class="lbl">Status</span><span class="val" id="bStatus">—</span></div>
+      <div class="row"><span class="lbl">Auto-Reconnect<small>Restarts the bridge if it drops or is replugged</small></span><label class="switch"><input type="checkbox" id="bWatch" onchange="setBridge(this.checked)"></label></div>
+      <div class="row"><span class="lbl">Reconnects</span><span class="val" id="bRestarts">0</span></div>
+      <button class="row tint" onclick="restartBridge()"><span class="lbl">Restart Bridge Now</span></button>
+    </div>
+    <div class="group-f" id="bNote">Sensors stay paired inside the bridge, so they come back on their own after a reconnect.</div>
+
     <div class="group-h">Pairing</div>
     <div class="list icons">
       <button class="row" onclick="openSheet('pairDoor')"><span class="sq" style="background:var(--indigo)"><svg class="i"><use href="#i-garage"/></svg></span><span class="lbl">Pair Door</span><svg class="i chev"><use href="#i-chev"/></svg></button>
@@ -400,6 +428,14 @@ button.row:active,a.row:active{background:var(--fill)}
       <button class="row" onclick="testRf()"><span class="sq" style="background:var(--orange)"><svg class="i"><use href="#i-wave"/></svg></span><span class="lbl">RF Test<small>3 s of test bursts for an SDR</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
       <button class="row" onclick="confirmReset()"><span class="sq" style="background:var(--red)"><svg class="i"><use href="#i-key"/></svg></span><span class="lbl">New Remote ID<small>Requires re-pairing</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
     </div>
+
+    <div class="group-h" id="autoCloseSec">Auto-Close</div>
+    <div class="list" id="acList">
+      <div class="row"><span class="lbl">Close If Left Open</span><label class="switch"><input type="checkbox" id="acEnabled" onchange="setAutoClose({enabled: this.checked})"></label></div>
+      <div class="row acmore" style="display:block;padding:10px 16px 6px"><span style="display:block">Close After</span>
+        <div class="seg" id="acSeg"><button data-v="5">5 min</button><button data-v="10">10 min</button><button data-v="15">15 min</button><button data-v="30">30 min</button><button data-v="60">1 h</button></div></div>
+    </div>
+    <div class="group-f" id="acNote">Halo warns you a minute before closing (Keep Open in the app or the alert), waits while there's motion in the garage, and only closes when the contact sensor confirms the door is open. Your opener's safety sensors must be working.</div>
 
     <div class="group-h" id="notifySec">Door Alerts</div>
     <div class="list">
@@ -477,11 +513,25 @@ button.row:active,a.row:active{background:var(--fill)}
   <div class="group-f" id="renameNote">Shown in the app and the activity log.</div>
 </section>
 
+<section class="sheet" id="sheet-addSensor">
+  <div class="grab"></div>
+  <div class="sheet-h"><span></span><b>Add Sensor</b><button onclick="closeAll()">Done</button></div>
+  <div class="hero-ic" style="background:var(--green)"><svg class="i"><use href="#i-sensor"/></svg></div>
+  <h2>Pair a Wyze Sensor</h2>
+  <p class="lead">Halo asks the Wyze bridge to look for new sensors for about a minute.</p>
+  <ol class="steps">
+    <li><span>Tap <b>Start Pairing</b>.</span></li>
+    <li><span>With a pin, press and hold the sensor's reset button until its light blinks (about 5 s).</span></li>
+    <li><span>When it appears below, tap it and choose what it's for.</span></li>
+  </ol>
+  <button class="btn" id="pairSensorBtn" onclick="startPairing()">Start Pairing</button>
+  <div class="found list icons" id="foundList" hidden></div>
+</section>
+
 <div class="asheet" id="asheet">
   <div class="grp">
     <div class="msg"><b id="asTitle"></b><span id="asMsg"></span></div>
-    <button id="asOk" class="red">Confirm</button>
-    <button id="asOk2" style="display:none"></button>
+    <div id="asButtons"></div>
   </div>
   <button class="cancel" onclick="closeAll()">Cancel</button>
 </div>
@@ -541,13 +591,21 @@ if (["activity", "device"].includes(location.hash.slice(1))) go(location.hash.sl
 function openSheet(name) { $("dim").classList.add("show"); $("sheet-" + name).classList.add("show");
   if (name === "sync" && S) { $("syncInput").value = S.rolling_code + 100; setTimeout(() => $("syncInput").focus(), 350); } }
 function closeAll() { document.querySelectorAll(".sheet.show,.asheet.show,.dim.show").forEach(e => e.classList.remove("show")); }
-function confirmAction(title, msg, label, fn, label2, fn2, red = true) {
-  $("asTitle").textContent = title; $("asMsg").textContent = msg; $("asOk").textContent = label;
-  $("asOk").className = red ? "red" : "";
-  $("asOk").onclick = () => { closeAll(); fn(); };
-  $("asOk2").style.display = label2 ? "block" : "none";
-  if (label2) { $("asOk2").textContent = label2; $("asOk2").onclick = () => { closeAll(); fn2(); }; }
+function actionSheet(title, msg, actions) {
+  $("asTitle").textContent = title; $("asMsg").textContent = msg;
+  const box = $("asButtons"); box.innerHTML = "";
+  actions.forEach(a => {
+    const b = document.createElement("button");
+    b.textContent = a.label; if (a.red) b.className = "red";
+    b.onclick = () => { closeAll(); a.fn(); };
+    box.appendChild(b);
+  });
   $("dim").classList.add("show"); $("asheet").classList.add("show");
+}
+function confirmAction(title, msg, label, fn, label2, fn2, red = true) {
+  const acts = [{ label, fn, red }];
+  if (label2) acts.push({ label: label2, fn: fn2 });
+  actionSheet(title, msg, acts);
 }
 let toastT;
 function toast(text, ok = true) {
@@ -640,6 +698,65 @@ function copyTopic() {
   ta.remove();
   toast(ok ? "Topic copied. Paste it in ntfy → Subscribe." : "Topic: " + t);
 }
+// Sensors, pairing, bridge
+const KIND = { contact: ["i-sensor", "var(--green)", "Contact"], motion: ["i-motion", "var(--blue)", "Motion"],
+               unknown: ["i-sensor", "var(--gray)", "Sensor"] };
+function sensorTitle(e) {
+  if (e.role === "door") return (S.sensor && S.sensor.name) || "Garage Door Sensor";
+  if (e.role === "car") return (S.motion && S.motion.name) || "Car Bay Motion";
+  return e.name || `Wyze ${KIND[e.kind] ? KIND[e.kind][2] : "Sensor"}`;
+}
+function sensorRow(e, onclick) {
+  const [ic, bg, label] = KIND[e.kind] || KIND.unknown;
+  const role = e.role === "door" ? '<span class="pill door">Garage door</span>' : e.role === "car" ? '<span class="pill car">Car</span>' : "";
+  const bits = [label, e.mac, e.battery != null ? e.battery + "%" : null, e.last_seen ? ago(e.last_seen) : "Not heard yet"].filter(Boolean);
+  return `<button class="row" onclick="${onclick}"><span class="sq" style="background:${bg}"><svg class="i"><use href="#${ic}"/></svg></span>
+    <span class="lbl">${esc(sensorTitle(e))}${role}<small>${esc(bits.join(" · "))}</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>`;
+}
+function sensorSheet(mac) {
+  const e = (S.sensors || []).find(x => x.mac === mac); if (!e) return;
+  const assign = role => act(() => api("/api/sensors/assign", { mac, role }),
+    role === "door" ? "Now the garage door sensor" : role === "car" ? "Now the car motion sensor" : "Sensor not used");
+  const acts = [];
+  if (e.role !== "door" && e.kind !== "motion") acts.push({ label: "Use for Garage Door", fn: () => assign("door") });
+  if (e.role !== "car" && e.kind !== "contact") acts.push({ label: "Use for Car (Motion)", fn: () => assign("car") });
+  if (e.role) acts.push({ label: "Rename", fn: () => renameSensor(e.role === "door" ? "door" : "motion") });
+  if (e.role) acts.push({ label: "Don't Use", fn: () => assign("none") });
+  acts.push({ label: "Remove from Bridge", red: true, fn: () => confirmAction("Remove this sensor?",
+    `${e.mac} will be unpaired from the Wyze bridge. You can pair it again later.`, "Remove",
+    () => act(() => api("/api/sensors/remove", { mac }), "Sensor removed")) });
+  actionSheet(sensorTitle(e), `${(KIND[e.kind] || KIND.unknown)[2]} sensor ${e.mac}`, acts);
+}
+let pairingSince = 0;
+function startPairing() {
+  pairingSince = S && S.now_offset_s ? S.now_offset_s() : Date.now() / 1000;   // server clock
+  act(() => api("/api/sensors/pair", { seconds: 60 }), "Pairing: press the sensor's reset button now");
+}
+function renderPairing() {
+  if (!S) return;
+  const active = S.pairing && S.pairing.active, btn = $("pairSensorBtn");
+  const left = active ? Math.max(0, Math.round(S.pairing.until - S.now_offset_s())) : 0;
+  btn.disabled = active;
+  btn.innerHTML = active ? `<span class="spinner"></span>Searching… ${left}s` : "Start Pairing";
+  const found = (S.sensors || []).filter(e => e.found_at >= pairingSince - 2 && pairingSince);
+  $("foundList").hidden = !found.length;
+  $("foundList").innerHTML = found.map(e => sensorRow(e, `closeAll();setTimeout(()=>sensorSheet('${e.mac}'),350)`)).join("");
+}
+const setBridge = on => act(() => api("/api/bridge", { watchdog: on }), on ? "Auto-reconnect on" : "Auto-reconnect off");
+const restartBridge = () => act(() => api("/api/bridge/restart"), "Bridge restarted");
+// Auto-close
+const setAutoClose = changes => act(() => api("/api/auto-close", changes),
+  r => r.auto_close.enabled ? `Auto-close after ${r.auto_close.minutes} min` : "Auto-close off");
+$("acSeg").onclick = e => e.target.dataset.v && setAutoClose({ minutes: +e.target.dataset.v });
+const holdAutoClose = () => act(() => api("/api/auto-close/hold"), "Keeping the door open");
+function tickAutoClose() {
+  const ac = S && S.auto_close;
+  const show = !!(ac && ac.enabled && ac.deadline && !ac.held);
+  $("acLine").hidden = !show;
+  if (!show) return;
+  const left = Math.max(0, Math.round(ac.deadline - S.now_offset_s()));
+  put("acText", "text", ac.blocked ? `Auto-close waiting: ${ac.blocked}` : left > 0 ? `Closing in ${mmss(left)}` : "Closing now…");
+}
 const confirmReset = () => confirmAction("Generate a new remote ID?",
   "The opener will stop responding until you pair Halo again.", "Generate New ID",
   () => act(() => api("/api/reset-remote", { start_counter: 1000 }), "New remote ID. Pair it now."));
@@ -649,7 +766,8 @@ const EVENT_STYLE = {
   Door: ["i-garage", "var(--indigo)"], Light: ["i-bulb", "var(--yellow)", "#000"], Sensor: ["i-sensor", "var(--green)"],
   "Remote Lock": ["i-lock", "var(--blue)"], "Pair Door": ["i-link", "var(--indigo)"], "Pair Light": ["i-link", "var(--yellow)", "#000"],
   "RF Test": ["i-wave", "var(--orange)"], "Rolling Code": ["i-sync", "var(--blue)"], "Remote ID": ["i-key", "var(--red)"],
-  Halo: ["i-halo", "var(--gray)"], Notifications: ["i-bell", "var(--red)"], Car: ["i-car", "var(--teal)"],
+  Halo: ["i-halo", "var(--gray)"], Notifications: ["i-bell", "var(--red)"],
+  "Wyze Bridge": ["i-link", "var(--green)"], "Auto-Close": ["i-garage", "var(--orange)"], Car: ["i-car", "var(--teal)"],
 };
 function eventRow(l) {
   const [ic, bg, fg = "#fff"] = EVENT_STYLE[l.action] || ["i-halo", "var(--gray)"];
@@ -728,6 +846,40 @@ function render(d) {
   put("mBatt", "class", "val " + (mo.battery != null && mo.battery < 20 ? "bad" : ""));
   put("mRssi", "text", mo.signal_strength != null ? mo.signal_strength + " dBm" : "—");
 
+  // Server clock offset (countdowns use the server's deadline)
+  const offset = d.auto_close ? Date.now() / 1000 - d.auto_close.now : 0;
+  S.now_offset_s = () => Date.now() / 1000 - offset;
+
+  // Sensors
+  const sk = JSON.stringify((d.sensors || []).map(e => [e.mac, e.role, e.kind, e.name, e.battery, e.last_seen]))
+    + (d.sensor && d.sensor.name) + (d.motion && d.motion.name);
+  if (sk !== cache.get("sensors")) {
+    cache.set("sensors", sk);
+    $("sensorList").innerHTML = (d.sensors || []).map(e => sensorRow(e, `sensorSheet('${e.mac}')`)).join("")
+      || '<div class="empty">No sensors yet. Tap Add Sensor.</div>';
+  }
+  renderPairing();
+
+  // Bridge
+  const b = d.bridge || {};
+  const bTxt = { ok: "Connected", unplugged: "Unplugged", restarting: "Reconnecting…", down: "Not responding",
+                 unknown: "Not detected" }[b.status] || "—";
+  const retryIn = b.next_retry && b.status === "down" ? Math.max(0, Math.round(b.next_retry - S.now_offset_s())) : 0;
+  put("bStatus", "text", bTxt + (retryIn ? ` · retry in ${retryIn > 90 ? Math.round(retryIn / 60) + " min" : retryIn + " s"}` : ""));
+  put("bStatus", "class", "val " + (b.status === "ok" ? "ok" : b.status === "unknown" ? "" : "warn"));
+  $("bWatch").checked = b.watchdog !== false;
+  put("bRestarts", "text", String(b.restarts || 0));
+  put("bNote", "text", b.error || "Sensors stay paired inside the bridge, so they come back on their own after a reconnect.");
+  put("bNote", "class", "group-f" + (b.error ? " bad" : ""));
+
+  // Auto-close
+  const ac = d.auto_close || {};
+  $("acEnabled").checked = !!ac.enabled;
+  $("acList").classList.toggle("ac-on", !!ac.enabled);
+  document.querySelectorAll("#acSeg button").forEach(x => x.classList.toggle("sel", +x.dataset.v === ac.minutes));
+  if (ac.needs_sensor) put("acNote", "text", "Auto-close needs the door contact sensor: Halo must see that the door is really open before sending a close. Pair one in Sensors.");
+  tickAutoClose();
+
   // Door alerts
   const n = d.notifications || {};
   $("nEnabled").checked = !!n.enabled;
@@ -765,7 +917,12 @@ function tickLight() {
   const rem = lightDeadline ? Math.max(0, Math.round((lightDeadline - Date.now()) / 1000)) : 0;
   put("lightSub", "text", S.light.on ? (rem ? `Possibly on · ${mmss(rem)}` : "Possibly on") : "Tap to toggle");
 }
-setInterval(() => { if (lightDeadline && !document.hidden) tickLight(); }, 1000);
+setInterval(() => {
+  if (document.hidden || !S) return;
+  if (lightDeadline) tickLight();
+  tickAutoClose();
+  if (S.pairing && S.pairing.active) renderPairing();
+}, 1000);
 
 // ── Live connection: SSE with polling fallback ───────
 let live = false, es = null, pollT = null;

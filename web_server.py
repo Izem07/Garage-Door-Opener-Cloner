@@ -22,6 +22,9 @@ import hashlib
 import secrets
 import urllib.request
 import logging
+import re
+import shutil
+import subprocess
 import threading
 from collections import deque
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
@@ -419,12 +422,89 @@ def _car_watcher():
             pending = None
 
 
+# Every Wyze sensor Halo has heard of: from state messages and the retained
+# Home Assistant discovery configs wyzesense2mqtt publishes for each paired sensor.
+SENSOR_INV = {}
+_inv_lock = threading.Lock()
+MAC_RE = re.compile(r"^[0-9A-F]{8}$")
+
+
+def _kind_from_class(cls: str) -> str:
+    cls = (cls or "").lower()
+    if any(k in cls for k in ("motion", "occupancy", "presence")):
+        return "motion"
+    if any(k in cls for k in ("opening", "door", "window", "garage", "contact", "switch")):
+        return "contact"
+    return "unknown"
+
+
+def inventory_update(mac: str, **fields):
+    mac = _norm_mac(mac)
+    if not mac or not MAC_RE.match(mac):
+        return
+    with _inv_lock:
+        new = mac not in SENSOR_INV
+        e = SENSOR_INV.setdefault(mac, {"mac": mac, "name": None, "kind": "unknown", "battery": None,
+                                        "signal_strength": None, "last_seen": None, "found_at": time.time()})
+        for k, v in fields.items():
+            if v is None:
+                continue
+            if k == "kind" and v == "unknown":
+                continue
+            e[k] = v
+    if new:
+        add_log("Sensor", f"Found {fields.get('kind', 'new')} sensor {mac}", True)
+    else:
+        notify_change()
+
+
+def inventory_remove(mac: str):
+    with _inv_lock:
+        SENSOR_INV.pop(_norm_mac(mac), None)
+    notify_change()
+
+
+def inventory_list():
+    with _inv_lock:
+        items = [dict(v) for v in SENSOR_INV.values()]
+    for e in items:
+        e["role"] = "door" if e["mac"] == SENSORS["door"] else "car" if e["mac"] == SENSORS["car"] else None
+    return sorted(items, key=lambda e: (e["role"] is None, e["mac"]))
+
+
+def ingest_discovery(topic: str, raw: str):
+    """homeassistant/binary_sensor/wyzesense_<MAC>/state/config (v1-3) or
+    homeassistant/device/ws2m_sensor_<MAC>/config (v4). Empty payload = sensor removed."""
+    m = re.search(r"(?:wyzesense|ws2m_sensor)_([0-9A-Fa-f]{8})", topic)
+    if not m:
+        return
+    mac = m.group(1).upper()
+    if not raw:
+        inventory_remove(mac)
+        return
+    try:
+        cfg = json.loads(raw)
+    except ValueError:
+        return
+    dev = cfg.get("dev") or cfg.get("device") or {}
+    name = cfg.get("name") or dev.get("name")
+    cls = cfg.get("dev_cla") or cfg.get("device_class") or ""
+    for comp in (cfg.get("cmps") or cfg.get("components") or {}).values():
+        cls = cls or comp.get("dev_cla") or comp.get("device_class") or ""
+    kind = _kind_from_class(cls) if cls else _kind_from_class(str(dev.get("mdl") or dev.get("model") or ""))
+    inventory_update(mac, name=name, kind=kind)
+
+
 def route_sensor(data: dict, topic_mac: str, source: str):
     """Send a sensor message to the right handler by MAC (door contact vs. car motion)."""
-    mac = _norm_mac(data.get("mac") or topic_mac)
+    mac = _norm_mac(data.get("mac") or (topic_mac if topic_mac and MAC_RE.match(topic_mac.upper()) else None))
     if mac:
         data["mac"] = mac
     cls = str(data.get("device_class", data.get("type", ""))).lower()
+    if mac and MAC_RE.match(mac):
+        inventory_update(mac, kind=_kind_from_class(cls), battery=data.get("battery"),
+                         signal_strength=data.get("signal_strength"), last_seen=_now_iso(),
+                         name=data.get("name"))
     if SENSORS["car"] and mac == SENSORS["car"]:
         return "motion", ingest_motion(data, source)
     if not SENSORS["car"] and ("motion" in cls or "occupancy" in cls or "motion" in data or "occupancy" in data):
@@ -433,6 +513,312 @@ def route_sensor(data: dict, topic_mac: str, source: str):
         logger.debug(f"[Sensor] Ignoring unknown sensor {mac}")
         return None, None
     return "door", ingest_sensor(data, source)
+
+
+def assign_sensor(mac: str, role: str):
+    """Make a sensor the garage door contact ('door') or the car-bay motion sensor ('car'), or neither."""
+    mac = _norm_mac(mac)
+    if role not in ("door", "car", "none") or not mac or not MAC_RE.match(mac):
+        raise ValueError("Send {'mac': '8 hex characters', 'role': 'door'|'car'|'none'}")
+    with state_lock:
+        for r in ("door", "car"):
+            if SENSORS[r] == mac:
+                SENSORS[r] = None                      # one role per sensor
+        if role != "none":
+            SENSORS[role] = mac
+            info = door_info["sensor" if role == "door" else "motion"]
+            info["mac"] = mac
+            info["connected"] = False                  # wait for this sensor's first report
+    if CTX["remote_mgr"]:
+        CTX["remote_mgr"].update(sensor_mac=SENSORS["door"], car_sensor_mac=SENSORS["car"])
+    label = {"door": "garage door sensor", "car": "car motion sensor", "none": "unused"}[role]
+    add_log("Sensor", f"{mac} is now the {label}", True)
+
+
+PAIRING = {"until": 0.0}
+
+
+def _ws_roots():
+    """wyzesense2mqtt topic root(s), e.g. 'wyzesense2mqtt' from 'wyzesense2mqtt/#'."""
+    cfg = CTX["remote_mgr"].config.get("mqtt", {}) if CTX["remote_mgr"] else {}
+    return [str(cfg.get("topic", "wyzesense2mqtt/#")).split("/")[0] or "wyzesense2mqtt"]
+
+
+def start_pairing(seconds: int = 60):
+    client = _mqtt["client"]
+    if not client or not _mqtt["connected"]:
+        raise RuntimeError("Not connected to the MQTT broker, so the Wyze bridge can't be reached")
+    for root in _ws_roots():
+        client.publish(f"{root}/scan", "", qos=1)                         # wyzesense2mqtt 1.x-3.x
+    for dmac in BRIDGE_INFO["dongles"]:
+        client.publish(f"ws2m/dongle/{dmac}/scan", "scan", qos=1)         # wyzesense2mqtt 4.x
+    PAIRING["until"] = time.time() + seconds
+    add_log("Sensor", "Pairing mode: press the reset button on the new sensor", True)
+
+
+def unpair_sensor(mac: str):
+    mac = _norm_mac(mac)
+    client = _mqtt["client"]
+    if not client or not _mqtt["connected"]:
+        raise RuntimeError("Not connected to the MQTT broker")
+    for root in _ws_roots():
+        client.publish(f"{root}/remove", mac, qos=1)
+    for dmac in BRIDGE_INFO["dongles"]:
+        client.publish(f"ws2m/dongle/{dmac}/remove", mac, qos=1)
+    for r in ("door", "car"):
+        if SENSORS[r] == mac:
+            assign_sensor(mac, "none")
+    inventory_remove(mac)
+    add_log("Sensor", f"Removed sensor {mac}", True)
+
+
+# ── Wyze bridge watchdog ───────────────────────────────────────────────────────
+# wyzesense2mqtt 1.x has no online/offline signal, so Halo checks the two things
+# that actually break: is the USB bridge plugged in, and is the container running?
+# If the bridge is replugged or the container stops, Halo restarts it. Sensors
+# stay paired inside the bridge itself, so they come back without re-pairing.
+BRIDGE = {"watchdog": True, "container": "wyzesense2mqtt", "usb_id": "1a86:e024",
+          "sysfs": "/sys/bus/usb/devices", "restart_command": None, "status_command": None}
+BRIDGE_INFO = {"status": "unknown", "usb": None, "service": None, "dongles": {}, "restarts": 0,
+               "last_restart": None, "error": None, "next_retry": None}
+_BACKOFF = (30, 60, 120, 300, 900)
+
+
+def _usb_bridge_present():
+    base = BRIDGE["sysfs"]
+    if not base or not os.path.isdir(base):
+        return None                                    # not Linux / not visible: unknown
+    vid, pid = BRIDGE["usb_id"].lower().split(":")
+    for d in os.listdir(base):
+        try:
+            with open(os.path.join(base, d, "idVendor")) as f:
+                if f.read().strip().lower() != vid:
+                    continue
+            with open(os.path.join(base, d, "idProduct")) as f:
+                if f.read().strip().lower() == pid:
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def _run(cmd, timeout):
+    if isinstance(cmd, str):
+        cmd = cmd.split()
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
+
+
+def _bridge_service_running():
+    cmd = BRIDGE["status_command"]
+    if not cmd:
+        if not shutil.which("docker"):
+            return None
+        cmd = ["docker", "inspect", "-f", "{{.State.Running}}", BRIDGE["container"]]
+    try:
+        code, out, err = _run(cmd, 10)
+    except (OSError, subprocess.SubprocessError) as e:
+        BRIDGE_INFO["error"] = str(e)
+        return None
+    if code != 0:
+        if "permission denied" in err.lower():
+            BRIDGE_INFO["error"] = "Halo can't use Docker. Add its user to the docker group (see README)."
+            return None
+        if "no such" in err.lower():
+            return None                                # bridge container not installed here
+        return False
+    return out.lower() in ("true", "running", "active", "1")
+
+
+def restart_bridge(reason: str) -> bool:
+    cmd = BRIDGE["restart_command"] or ["docker", "restart", BRIDGE["container"]]
+    BRIDGE_INFO["status"] = "restarting"
+    notify_change()
+    try:
+        code, out, err = _run(cmd, 90)
+    except (OSError, subprocess.SubprocessError) as e:
+        code, err = 1, str(e)
+    BRIDGE_INFO["last_restart"] = _now_iso()
+    BRIDGE_INFO["restarts"] += 1
+    if code == 0:
+        BRIDGE_INFO["error"] = None
+        add_log("Wyze Bridge", f"Restarted ({reason})", True)
+        return True
+    BRIDGE_INFO["error"] = ("Halo can't use Docker. Add its user to the docker group (see README)."
+                            if "permission denied" in err.lower() else f"Restart failed: {err[:120]}")
+    add_log("Wyze Bridge", f"Restart failed ({reason}): {err[:120]}", False)
+    return False
+
+
+def _bridge_watchdog():
+    prev_usb, last_restart_at, fails, healthy_since = None, 0.0, 0, None
+    while True:
+        usb = _usb_bridge_present()
+        running = _bridge_service_running()
+        dongle_down = any(v == "offline" for v in BRIDGE_INFO["dongles"].values())
+        now = time.time()
+        BRIDGE_INFO.update(usb=usb, service=None if running is None else ("running" if running else "stopped"))
+
+        reason = None
+        if prev_usb is False and usb:
+            time.sleep(3)                              # let the USB device settle
+            reason = "bridge plugged back in"
+        elif usb is not False and running is False:
+            reason = "bridge service stopped"
+        elif usb and dongle_down:
+            reason = "bridge reported offline"
+
+        if usb is False:
+            status = "unplugged"
+            if prev_usb is not False:
+                add_log("Wyze Bridge", "USB bridge unplugged. Door sensor offline until it's back", False)
+        elif reason:
+            status = "down"
+        elif usb is None and running is None:
+            status = "unknown"
+        else:
+            status = "ok"
+        if status != BRIDGE_INFO["status"] and BRIDGE_INFO["status"] != "restarting":
+            BRIDGE_INFO["status"] = status
+            notify_change()
+
+        wait_needed = _BACKOFF[min(fails, len(_BACKOFF) - 1)] if fails else 0
+        plugged_in = reason == "bridge plugged back in"
+        retry_at = last_restart_at + wait_needed if reason and BRIDGE["watchdog"] else None
+        if retry_at != BRIDGE_INFO["next_retry"]:
+            BRIDGE_INFO["next_retry"] = retry_at if retry_at and retry_at > now else None
+        if reason and BRIDGE["watchdog"] and (plugged_in and now - last_restart_at > 20
+                                              or now - last_restart_at >= wait_needed):
+            ok = restart_bridge(reason)
+            last_restart_at, fails = time.time(), (0 if ok and plugged_in else fails + 1)
+            BRIDGE_INFO["status"] = "ok" if ok else "down"
+            healthy_since = None
+            notify_change()
+        elif status == "ok":
+            healthy_since = healthy_since or now
+            if now - healthy_since > 300:
+                fails = 0
+        prev_usb = usb
+        time.sleep(BRIDGE.get("interval", 15))
+
+
+# ── Auto-close ─────────────────────────────────────────────────────────────────
+# Closes the door after it has been open N minutes. Safety rules:
+#   * Only when the contact sensor confirms the door is OPEN. The remote is a
+#     toggle, so acting on a guess could OPEN a closed door.
+#   * A warning goes out first (notification + app) with "Keep open".
+#   * Postponed while there's motion in the garage (car motion sensor).
+#   * One attempt per opening. If the door doesn't close (something in the
+#     way), you get an alert and Halo does not try again.
+AUTO_CLOSE = {"enabled": False, "minutes": 10, "warn_seconds": 60, "motion_hold_seconds": 120}
+AC = {"deadline": None, "held": False, "blocked": None, "warned": False, "attempted": False}
+
+
+def configure_auto_close(**changes) -> dict:
+    if "enabled" in changes and isinstance(changes["enabled"], bool):
+        AUTO_CLOSE["enabled"] = changes["enabled"]
+    if "minutes" in changes:
+        AUTO_CLOSE["minutes"] = max(0.05, min(240.0, float(changes["minutes"])))
+    if CTX["remote_mgr"]:
+        CTX["remote_mgr"].update(auto_close=dict(AUTO_CLOSE))
+    if not AUTO_CLOSE["enabled"]:
+        AC.update(deadline=None, warned=False)
+    add_log("Auto-Close", f"On: close after {AUTO_CLOSE['minutes']:g} min" if AUTO_CLOSE["enabled"] else "Off", True)
+    return auto_close_public()
+
+
+def hold_auto_close():
+    AC.update(held=True, deadline=None, warned=False)
+    add_log("Auto-Close", "Keeping the door open until it next closes", True)
+
+
+def auto_close_public() -> dict:
+    with state_lock:
+        sensor_ok = bool(SENSORS["door"] or door_info["sensor"]["connected"])
+    return {**AUTO_CLOSE, "deadline": AC["deadline"], "held": AC["held"], "blocked": AC["blocked"],
+            "needs_sensor": not sensor_ok, "now": time.time()}
+
+
+def _auto_close_worker():
+    last_version, prev_closed, opened_at = None, None, None
+    while True:
+        wait = 30.0
+        if AC["deadline"]:
+            wait = max(0.2, min(wait, AC["deadline"] - AUTO_CLOSE["warn_seconds"] - time.time()
+                                if not AC["warned"] else AC["deadline"] - time.time()))
+        with _change:
+            _change.wait_for(lambda: _version != last_version, timeout=wait)
+            last_version = _version
+        with state_lock:
+            state = door_info["state"]
+            sensor = dict(door_info["sensor"])
+        closed = state == "CLOSED"
+        now = time.time()
+        if prev_closed is None or (prev_closed and not closed):          # door opened (or startup)
+            opened_at = None if closed else now
+            AC.update(held=False, warned=False, attempted=False, blocked=None)
+        if closed:
+            AC.update(deadline=None, held=False, warned=False, blocked=None)
+            opened_at = None
+        prev_closed = closed
+        if closed or not AUTO_CLOSE["enabled"] or AC["held"] or AC["attempted"] or not opened_at:
+            if not AUTO_CLOSE["enabled"]:
+                AC["deadline"] = None
+            continue
+        if AC["deadline"] is None:
+            AC["deadline"] = opened_at + AUTO_CLOSE["minutes"] * 60
+            notify_change()
+
+        # Warning shortly before closing
+        if not AC["warned"] and now >= AC["deadline"] - AUTO_CLOSE["warn_seconds"]:
+            AC["warned"] = True
+            send_notification("Garage door closing soon",
+                              f"Halo will close the garage door in {int(AUTO_CLOSE['warn_seconds'])} s.",
+                              priority="high", tags="warning", keep_open_action=True)
+            notify_change()
+        if now < AC["deadline"]:
+            continue
+
+        # Safety checks
+        blocked = None
+        if not (sensor["connected"] and sensor["state"] == "open"):
+            blocked = "Needs the door contact sensor to confirm the door is open"
+        elif state != "OPEN":
+            blocked = "Door is moving"
+        elif _motion_between(now - AUTO_CLOSE["motion_hold_seconds"], now):
+            blocked = "Motion in the garage, trying again shortly"
+        if blocked:
+            if blocked != AC["blocked"]:
+                AC["blocked"] = blocked
+                add_log("Auto-Close", f"Waiting: {blocked}", True)
+            AC["deadline"] = now + 60                   # check again in a minute
+            AC["warned"] = True
+            notify_change()
+            continue
+
+        AC.update(attempted=True, deadline=None, blocked=None)
+        try:
+            press_door(source="Auto-close", allow_locked=True)
+        except Exception as e:
+            add_log("Auto-Close", f"Couldn't send close: {e}", False)
+            send_notification("Auto-close failed", f"Halo couldn't close the garage door: {e}",
+                              priority="high", tags="rotating_light", close_action=True)
+            continue
+        threading.Thread(target=_verify_auto_close, daemon=True).start()
+
+
+def _verify_auto_close():
+    with state_lock:
+        travel = door_info.get("travel_time", 12.0)
+    time.sleep(travel + 20)
+    with state_lock:
+        closed = door_info["state"] == "CLOSED"
+        sensor_open = door_info["sensor"]["state"] == "open"
+    if not closed or sensor_open:
+        add_log("Auto-Close", "Door did not close (something in the way?). Not retrying", False)
+        send_notification("Garage door did NOT close",
+                          "Auto-close tried but the door is still open. Check for something blocking it.",
+                          priority="urgent", tags="rotating_light")
 
 
 # ── Actions shared by HTTP and MQTT ────────────────────────────────────────────
@@ -464,10 +850,10 @@ def default_repeats(value=None, default=None) -> int:
 _last_door_cmd = {"source": None, "at": 0.0}
 
 
-def press_door(repeats=None, source: str = None) -> dict:
+def press_door(repeats=None, source: str = None, allow_locked: bool = False) -> dict:
     """One door-button press (Security+ 1.0 is a toggle). Raises LockedError."""
     with state_lock:
-        if door_info["locked"]:
+        if door_info["locked"] and not allow_locked:
             raise LockedError("Remote lock is on")
     mgr = CTX["remote_mgr"]
     rolling, fixed = mgr.get_next_codes()
@@ -618,6 +1004,9 @@ def start_mqtt_client(broker_host="127.0.0.1", broker_port=1883, topic="wyzesens
         for t in sensor_topics:
             client.subscribe(t)
         client.subscribe(f"{base}/+/set", qos=1)
+        client.subscribe("homeassistant/binary_sensor/+/state/config")   # wyzesense2mqtt 1.x-3.x
+        client.subscribe("homeassistant/device/+/config")                # wyzesense2mqtt 4.x
+        client.subscribe("ws2m/dongle/+/status")
         client.publish(avail, "online", qos=1, retain=True)
         _mqtt_publish_state()
 
@@ -634,6 +1023,13 @@ def start_mqtt_client(broker_host="127.0.0.1", broker_port=1883, topic="wyzesens
                     kind = msg.topic[len(base) + 1:-len("/set")]
                     threading.Thread(target=_mqtt_command, args=(kind, raw), daemon=True).start()
                 return
+            if msg.topic.startswith("homeassistant/"):
+                return ingest_discovery(msg.topic, raw)
+            if msg.topic.startswith("ws2m/dongle/") and msg.topic.endswith("/status"):
+                BRIDGE_INFO["dongles"][msg.topic.split("/")[2]] = raw.lower()
+                return notify_change()
+            if msg.topic.rsplit("/", 1)[-1] in ("scan", "remove", "reload"):
+                return                                   # our own pairing commands echoed back
             try:
                 data = json.loads(raw)
             except ValueError:
@@ -717,7 +1113,8 @@ def configure_notifications(**changes) -> dict:
 
 
 def send_notification(title: str, message: str, priority: str = "default",
-                      tags: str = "house", close_action: bool = False, force: bool = False):
+                      tags: str = "house", close_action: bool = False, force: bool = False,
+                      keep_open_action: bool = False):
     """Fire-and-forget push to ntfy. Retries for ~1 minute if the internet is down."""
     with _notify_lock:
         n = dict(NOTIFY)
@@ -729,6 +1126,8 @@ def send_notification(title: str, message: str, priority: str = "default",
         headers["Click"] = n["app_url"]
         if close_action:
             headers["Actions"] = f"http, Close door, {n['app_url']}/api/close?source=Notification, method=POST, clear=true"
+        if keep_open_action:
+            headers["Actions"] = f"http, Keep open, {n['app_url']}/api/auto-close/hold, method=POST, clear=true"
     url = f"{n['server']}/{n['topic']}"
 
     def worker():
@@ -781,7 +1180,9 @@ def _door_notifier():
         elif not prev_closed and closed:
             if NOTIFY["on_close"]:
                 how_long = f" after {_fmt_minutes(now - opened_at)}" if opened_at else ""
-                send_notification("Garage door closed", f"Closed{how_long}.", tags="door,white_check_mark")
+                auto = _last_door_cmd["source"] == "Auto-close" and now - _last_door_cmd["at"] < 120
+                send_notification("Garage door closed automatically" if auto else "Garage door closed",
+                                  f"Closed{how_long}.", tags="door,white_check_mark")
             opened_at = None
         prev_closed = closed
         limit = NOTIFY["left_open_minutes"] * 60
@@ -902,6 +1303,13 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
             "/api/sensor-name": self.handle_sensor_name,
             "/api/notifications": self.handle_notifications,
             "/api/notifications/test": self.handle_notifications_test,
+            "/api/sensors/pair": self.handle_sensors_pair,
+            "/api/sensors/assign": self.handle_sensors_assign,
+            "/api/sensors/remove": self.handle_sensors_remove,
+            "/api/bridge/restart": self.handle_bridge_restart,
+            "/api/bridge": self.handle_bridge_settings,
+            "/api/auto-close": self.handle_auto_close,
+            "/api/auto-close/hold": self.handle_auto_close_hold,
             "/api/light": self.handle_light, "/api/light/state": self.handle_light_state,
             "/api/lock": self.handle_lock,
             "/api/pair": self.handle_pair, "/api/pair-light": self.handle_pair_light,
@@ -1030,6 +1438,57 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
             return self.send_json({"success": False, "error": "Turn on door alerts first"}, 400)
         self.send_json({"success": True, "message": "Test notification sent"})
 
+    def handle_sensors_pair(self, data: dict):
+        try:
+            start_pairing(int(data.get("seconds", 60)))
+        except RuntimeError as e:
+            return self.send_json({"success": False, "error": str(e)}, 503)
+        self.send_json({"success": True, "until": PAIRING["until"]})
+
+    def handle_sensors_assign(self, data: dict):
+        try:
+            assign_sensor(data.get("mac"), data.get("role", "none"))
+        except ValueError as e:
+            return self.send_json({"success": False, "error": str(e)}, 400)
+        self.send_json({"success": True, "sensors": inventory_list()})
+
+    def handle_sensors_remove(self, data: dict):
+        try:
+            unpair_sensor(data.get("mac"))
+        except RuntimeError as e:
+            return self.send_json({"success": False, "error": str(e)}, 503)
+        self.send_json({"success": True})
+
+    def handle_bridge_restart(self, data: dict):
+        ok = restart_bridge("restarted from Halo")
+        BRIDGE_INFO["status"] = "ok" if ok else "down"
+        notify_change()
+        if not ok:
+            return self.send_json({"success": False, "error": BRIDGE_INFO["error"]}, 500)
+        self.send_json({"success": True})
+
+    def handle_bridge_settings(self, data: dict):
+        if isinstance(data.get("watchdog"), bool):
+            BRIDGE["watchdog"] = data["watchdog"]
+            if CTX["remote_mgr"]:
+                saved = dict(CTX["remote_mgr"].config.get("bridge") or {})
+                saved["watchdog"] = BRIDGE["watchdog"]
+                CTX["remote_mgr"].update(bridge=saved)
+            add_log("Wyze Bridge", "Auto-reconnect on" if BRIDGE["watchdog"] else "Auto-reconnect off", True)
+        self.send_json({"success": True, "bridge": {**BRIDGE_INFO, "watchdog": BRIDGE["watchdog"]}})
+
+    def handle_auto_close(self, data: dict):
+        try:
+            r = configure_auto_close(**{k: v for k, v in data.items() if k in ("enabled", "minutes")})
+        except (TypeError, ValueError) as e:
+            return self.send_json({"success": False, "error": str(e)}, 400)
+        notify_change()
+        self.send_json({"success": True, "auto_close": r})
+
+    def handle_auto_close_hold(self, data: dict):
+        hold_auto_close()
+        self.send_json({"success": True})
+
     def handle_car(self, data: dict):
         present = data.get("present")
         if not isinstance(present, bool):
@@ -1149,6 +1608,10 @@ def build_status(remote_mgr: RemoteManager, radio: CC1101) -> dict:
         },
         "light": {"on": d["light_on"], "estimated": True, "auto_off_remaining_sec": remaining},
         "notifications": notify_public(),
+        "auto_close": auto_close_public(),
+        "sensors": inventory_list(),
+        "pairing": {"active": PAIRING["until"] > time.time(), "until": PAIRING["until"]},
+        "bridge": {**BRIDGE_INFO, "dongles": dict(BRIDGE_INFO["dongles"]), "watchdog": BRIDGE["watchdog"]},
         "sensor": sensor,
         "car": dict(d["car"]),
         "motion": dict(d["motion"]),
@@ -1198,11 +1661,19 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
     with _notify_lock:
         NOTIFY.update({k: v for k, v in saved_n.items() if k in NOTIFY})
     threading.Thread(target=_door_notifier, daemon=True).start()
+    BRIDGE.update({k: v for k, v in (remote_mgr.config.get("bridge") or {}).items() if k in BRIDGE or k == "interval"})
+    AUTO_CLOSE.update({k: v for k, v in (remote_mgr.config.get("auto_close") or {}).items() if k in AUTO_CLOSE})
+    threading.Thread(target=_bridge_watchdog, daemon=True).start()
+    threading.Thread(target=_auto_close_worker, daemon=True).start()
     SENSORS["door"] = _norm_mac(remote_mgr.config.get("sensor_mac"))
     SENSORS["car"] = _norm_mac(remote_mgr.config.get("car_sensor_mac"))
     for which, (info_key, cfg_key) in SENSOR_NAME_KEYS.items():
         if remote_mgr.config.get(cfg_key):
             door_info[info_key]["name"] = str(remote_mgr.config[cfg_key])[:32]
+    for mac in (SENSORS["door"], SENSORS["car"]):
+        if mac and MAC_RE.match(mac):
+            SENSOR_INV.setdefault(mac, {"mac": mac, "name": None, "kind": "contact" if mac == SENSORS["door"] else "motion",
+                                        "battery": None, "signal_strength": None, "last_seen": None, "found_at": 0})
     if SENSORS["door"]:
         door_info["sensor"]["mac"] = SENSORS["door"]
     if SENSORS["car"]:
