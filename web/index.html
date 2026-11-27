@@ -1,1714 +1,797 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>Chamberlain GDO • Device Admin</title>
-
-  <!-- Apple Touch & PWA icons -->
-  <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
-  <link rel="shortcut icon" href="/favicon.ico">
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-  <link rel="manifest" href="/manifest.json">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="Garage Admin">
-  <meta name="theme-color" content="#111111">
-
-  <style>
-    :root {
-      --font-sans: "Roboto", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      --ha-blue: #03a9f4;
-      --ha-blue-hover: #0288d1;
-      --ha-blue-bg: rgba(3, 169, 244, 0.14);
-      --ha-amber: #ff9800;
-      --ha-green: #4caf50;
-      --ha-red: #f44336;
-    }
-
-    /* Dark Mode (Home Assistant / ESPHome Admin Dark) */
-    html[data-theme="dark"] {
-      --bg-canvas: #111111;
-      --bg-appbar: #1c1c1c;
-      --bg-card: #1c1c1c;
-      --bg-card-sub: #252525;
-      --bg-hover: rgba(255, 255, 255, 0.05);
-      --border-color: rgba(255, 255, 255, 0.11);
-      --divider-color: rgba(255, 255, 255, 0.08);
-      --text-primary: #e1e1e1;
-      --text-secondary: #9b9b9b;
-      --text-disabled: #555555;
-      --icon-color: #9b9b9b;
-      --switch-track: #424242;
-      --switch-thumb: #bdbdbd;
-      --timeline-line: #333333;
-      --slat-fill: #333333;
-      --slat-stroke: #444444;
-    }
-
-    /* Light Mode (Exact ESPHome / Home Assistant Light) */
-    html[data-theme="light"] {
-      --bg-canvas: #fafafa;
-      --bg-appbar: #ffffff;
-      --bg-card: #ffffff;
-      --bg-card-sub: #f5f5f5;
-      --bg-hover: rgba(0, 0, 0, 0.04);
-      --border-color: #e0e0e0;
-      --divider-color: #eeeeee;
-      --text-primary: #212121;
-      --text-secondary: #727272;
-      --text-disabled: #bdbdbd;
-      --icon-color: #44739e;
-      --switch-track: #bdbdbd;
-      --switch-thumb: #ffffff;
-      --timeline-line: #e0e0e0;
-      --slat-fill: #e0e0e0;
-      --slat-stroke: #cccccc;
-    }
-
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-      font-family: var(--font-sans);
-      -webkit-tap-highlight-color: transparent;
-    }
-
-    body {
-      background-color: var(--bg-canvas);
-      color: var(--text-primary);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      padding-bottom: max(40px, env(safe-area-inset-bottom));
-    }
-
-    /* TOP APP BAR (Matches HA/ESPHome Header) */
-    .app-bar {
-      background-color: var(--bg-appbar);
-      border-bottom: 1px solid var(--border-color);
-      height: 56px;
-      padding: 0 16px;
-      padding-top: env(safe-area-inset-top);
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      position: sticky;
-      top: 0;
-      z-index: 100;
-    }
-
-    .app-bar-left {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-    }
-
-    .app-bar-title {
-      font-size: 1.25rem;
-      font-weight: 500;
-      letter-spacing: 0.01em;
-      color: var(--text-primary);
-    }
-
-    .app-bar-right {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .icon-btn {
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      border: none;
-      background: transparent;
-      color: var(--text-secondary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: background 0.15s ease, color 0.15s ease;
-    }
-
-    .icon-btn:hover {
-      background: var(--bg-hover);
-      color: var(--text-primary);
-    }
-
-    /* SUB-HEADER BREADCRUMB & INTEGRATION BADGE */
-    .sub-header {
-      max-width: 1120px;
-      width: 100%;
-      margin: 0 auto;
-      padding: 14px 16px 6px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-
-    .area-badge {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--ha-blue);
-      font-size: 0.875rem;
-      font-weight: 500;
-      text-decoration: none;
-    }
-
-    .integration-brand {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      font-size: 1.05rem;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .integration-logo {
-      width: 26px;
-      height: 26px;
-      border-radius: 6px;
-      background: var(--ha-blue);
-      color: #fff;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    /* 2-COLUMN ADMIN MASONRY LAYOUT */
-    .admin-grid {
-      max-width: 1120px;
-      width: 100%;
-      margin: 0 auto;
-      padding: 10px 16px;
-      display: grid;
-      grid-template-columns: 380px 1fr;
-      gap: 16px;
-      align-items: start;
-    }
-
-    .admin-col {
-      display: flex;
-      flex-direction: column;
-      gap: 16px;
-    }
-
-    /* HA / ESPHOME CARD */
-    .ha-card {
-      background-color: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: 12px;
-      overflow: hidden;
-    }
-
-    .card-header {
-      padding: 16px 16px 8px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .card-title {
-      font-size: 1.25rem;
-      font-weight: 400;
-      color: var(--text-primary);
-      letter-spacing: 0.005em;
-    }
-
-    .card-body {
-      padding: 4px 16px 14px 16px;
-    }
-
-    .card-footer-actions {
-      border-top: 1px solid var(--divider-color);
-      padding: 8px 12px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .card-footer-link {
-      border-top: 1px solid var(--divider-color);
-      padding: 12px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      color: var(--ha-blue);
-      font-size: 0.875rem;
-      font-weight: 500;
-      cursor: pointer;
-      background: transparent;
-      border-left: none;
-      border-right: none;
-      border-bottom: none;
-      width: 100%;
-      text-align: left;
-    }
-
-    .card-footer-link:hover {
-      background: var(--bg-hover);
-    }
-
-    /* DEVICE INFO CARD */
-    .device-meta-list {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-      font-size: 0.875rem;
-      color: var(--text-secondary);
-      margin-top: 4px;
-    }
-
-    .device-meta-row {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-wrap: wrap;
-    }
-
-    .mono-link {
-      font-family: var(--font-mono);
-      font-size: 0.82rem;
-      color: var(--ha-blue);
-      text-decoration: underline;
-      cursor: pointer;
-    }
-
-    .integration-row {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 10px 0 4px 0;
-      margin-top: 8px;
-      color: var(--text-primary);
-      font-size: 0.9rem;
-    }
-
-    .integration-row-left {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .btn-ha-text {
-      background: transparent;
-      border: none;
-      color: var(--ha-blue);
-      font-size: 0.875rem;
-      font-weight: 600;
-      padding: 6px 10px;
-      border-radius: 6px;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      transition: background 0.15s ease;
-    }
-
-    .btn-ha-text:hover {
-      background: var(--ha-blue-bg);
-    }
-
-    .btn-ha-text:disabled {
-      color: var(--text-disabled);
-      pointer-events: none;
-    }
-
-    .btn-ha-pill {
-      background: var(--ha-blue-bg);
-      color: var(--ha-blue);
-      border: none;
-      font-size: 0.82rem;
-      font-weight: 600;
-      padding: 6px 14px;
-      border-radius: 18px;
-      cursor: pointer;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .btn-ha-pill:hover {
-      background: rgba(3, 169, 244, 0.24);
-    }
-
-    /* ENTITY ROWS (Controls, Sensors, Diagnostic) */
-    .entity-list {
-      display: flex;
-      flex-direction: column;
-    }
-
-    .entity-row {
-      min-height: 46px;
-      padding: 6px 16px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-      transition: background 0.12s ease;
-    }
-
-    .entity-row:hover {
-      background: var(--bg-hover);
-    }
-
-    .entity-left {
-      display: flex;
-      align-items: center;
-      gap: 16px;
-      min-width: 0;
-    }
-
-    .entity-icon {
-      width: 22px;
-      height: 22px;
-      color: var(--icon-color);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      flex-shrink: 0;
-    }
-
-    .entity-icon.active-amber {
-      color: var(--ha-amber);
-    }
-
-    .entity-icon.active-blue {
-      color: var(--ha-blue);
-    }
-
-    .entity-name-wrap {
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
-
-    .entity-name {
-      font-size: 0.92rem;
-      color: var(--text-primary);
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .entity-sub {
-      font-size: 0.75rem;
-      color: var(--text-secondary);
-    }
-
-    .entity-right {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      flex-shrink: 0;
-    }
-
-    .entity-value {
-      font-size: 0.92rem;
-      font-weight: 400;
-      color: var(--text-primary);
-      text-align: right;
-    }
-
-    .entity-value.mono {
-      font-family: var(--font-mono);
-      font-size: 0.85rem;
-    }
-
-    .entity-value.ok {
-      color: var(--ha-green);
-    }
-
-    .entity-value.warn {
-      color: var(--ha-amber);
-    }
-
-    /* COVER UP / STOP / DOWN BUTTONS (Matches ESPHome Screenshot) */
-    .cover-btn-group {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .cover-arrow-btn {
-      width: 34px;
-      height: 34px;
-      border-radius: 50%;
-      border: none;
-      background: transparent;
-      color: var(--text-primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      transition: background 0.15s ease, color 0.15s ease;
-    }
-
-    .cover-arrow-btn:hover {
-      background: var(--bg-hover);
-      color: var(--ha-blue);
-    }
-
-    .cover-arrow-btn.disabled {
-      color: var(--text-disabled);
-      pointer-events: none;
-    }
-
-    /* MATERIAL / HA TOGGLE SWITCH */
-    .ha-switch {
-      position: relative;
-      display: inline-block;
-      width: 38px;
-      height: 20px;
-    }
-
-    .ha-switch input {
-      opacity: 0;
-      width: 0;
-      height: 0;
-    }
-
-    .ha-slider {
-      position: absolute;
-      cursor: pointer;
-      top: 3px;
-      left: 0;
-      right: 0;
-      bottom: 3px;
-      background-color: var(--switch-track);
-      border-radius: 14px;
-      transition: 0.2s;
-    }
-
-    .ha-slider:before {
-      position: absolute;
-      content: "";
-      height: 20px;
-      width: 20px;
-      left: -1px;
-      bottom: -3px;
-      background-color: var(--switch-thumb);
-      border-radius: 50%;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
-      transition: 0.2s;
-    }
-
-    .ha-switch input:checked + .ha-slider {
-      background-color: rgba(3, 169, 244, 0.5);
-    }
-
-    .ha-switch input:checked + .ha-slider:before {
-      background-color: var(--ha-blue);
-      transform: translateX(20px);
-    }
-
-    #lightToggleSwitch:checked + .ha-slider {
-      background-color: rgba(255, 152, 0, 0.5);
-    }
-
-    #lightToggleSwitch:checked + .ha-slider:before {
-      background-color: var(--ha-amber);
-    }
-
-    /* MINI SCHEMATIC VISUALIZER INSIDE SENSORS CARD */
-    .schematic-bar {
-      margin: 4px 16px 12px 16px;
-      padding: 10px 12px;
-      background: var(--bg-card-sub);
-      border: 1px solid var(--divider-color);
-      border-radius: 8px;
-      display: flex;
-      align-items: center;
-      gap: 14px;
-    }
-
-    .mini-svg {
-      width: 68px;
-      height: 52px;
-      flex-shrink: 0;
-    }
-
-    .slat {
-      transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .schematic-info {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-
-    .schematic-top {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.8rem;
-      color: var(--text-secondary);
-    }
-
-    .progress-track {
-      width: 100%;
-      height: 6px;
-      background: var(--divider-color);
-      border-radius: 4px;
-      overflow: hidden;
-    }
-
-    .progress-fill {
-      height: 100%;
-      width: 0%;
-      background: var(--ha-blue);
-      transition: width 0.3s ease;
-    }
-
-    /* ACTIVITY TIMELINE (Matches ESPHome Bottom-Left Card) */
-    .timeline-date {
-      font-size: 0.82rem;
-      font-weight: 500;
-      color: var(--text-primary);
-      padding: 4px 16px 10px 16px;
-    }
-
-    .timeline-list {
-      padding: 0 16px 12px 16px;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .timeline-item {
-      display: flex;
-      gap: 14px;
-      position: relative;
-      padding-bottom: 14px;
-    }
-
-    .timeline-item:last-child {
-      padding-bottom: 4px;
-    }
-
-    .timeline-rail {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      width: 14px;
-      flex-shrink: 0;
-    }
-
-    .timeline-dot {
-      width: 9px;
-      height: 9px;
-      border-radius: 50%;
-      background: var(--text-secondary);
-      margin-top: 5px;
-      z-index: 2;
-    }
-
-    .timeline-dot.err {
-      background: var(--ha-red);
-    }
-
-    .timeline-line {
-      width: 2px;
-      flex: 1;
-      background: var(--timeline-line);
-      margin-top: 3px;
-      margin-bottom: -6px;
-    }
-
-    .timeline-item:last-child .timeline-line {
-      display: none;
-    }
-
-    .timeline-content {
-      flex: 1;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      gap: 8px;
-      min-width: 0;
-    }
-
-    .timeline-main {
-      display: flex;
-      flex-direction: column;
-      min-width: 0;
-    }
-
-    .timeline-action {
-      font-size: 0.875rem;
-      color: var(--text-primary);
-    }
-
-    .timeline-time {
-      font-size: 0.75rem;
-      color: var(--text-secondary);
-      margin-top: 2px;
-    }
-
-    .timeline-detail {
-      font-family: var(--font-mono);
-      font-size: 0.78rem;
-      color: var(--text-secondary);
-      text-align: right;
-      max-width: 140px;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    /* SUB-SECTION LABEL IN CARDS */
-    .section-divider-label {
-      font-size: 0.75rem;
-      font-weight: 500;
-      color: var(--text-secondary);
-      padding: 10px 16px 4px 16px;
-      border-top: 1px solid var(--divider-color);
-      margin-top: 4px;
-    }
-
-    /* MODALS */
-    .modal-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(0, 0, 0, 0.7);
-      display: none;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      padding: 16px;
-    }
-
-    .modal-overlay.active {
-      display: flex;
-    }
-
-    .modal-box {
-      background: var(--bg-card);
-      border: 1px solid var(--border-color);
-      border-radius: 14px;
-      max-width: 440px;
-      width: 100%;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      gap: 14px;
-      box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5);
-    }
-
-    .modal-title {
-      font-size: 1.15rem;
-      font-weight: 500;
-      color: var(--text-primary);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .modal-step {
-      font-size: 0.86rem;
-      line-height: 1.45;
-      color: var(--text-secondary);
-      background: var(--bg-card-sub);
-      padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid var(--divider-color);
-    }
-
-    .modal-step strong {
-      color: var(--text-primary);
-    }
-
-    .modal-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 8px;
-      margin-top: 4px;
-    }
-
-    .input-field {
-      width: 100%;
-      padding: 10px 12px;
-      border-radius: 8px;
-      background: var(--bg-card-sub);
-      border: 1px solid var(--border-color);
-      color: var(--text-primary);
-      font-family: var(--font-mono);
-      font-size: 0.95rem;
-      outline: none;
-    }
-
-    .input-field:focus {
-      border-color: var(--ha-blue);
-    }
-
-    /* RESPONSIVE */
-    @media (max-width: 860px) {
-      .admin-grid {
-        grid-template-columns: 1fr;
-      }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Halo</title>
+<link rel="icon" type="image/svg+xml" href="/icon.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+<link rel="manifest" href="/manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Halo">
+<meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<style>
+:root{
+  --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","SF Pro Display","Segoe UI",system-ui,sans-serif;
+  --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --bg:#f2f2f7; --cell:#fff; --cell2:#f2f2f7; --elev:#fff;
+  --label:#000; --label2:rgba(60,60,67,.6); --label3:rgba(60,60,67,.3);
+  --sep:rgba(60,60,67,.18); --fill:rgba(120,120,128,.12); --fill2:rgba(120,120,128,.2);
+  --bar:rgba(249,249,249,.82); --dim:rgba(0,0,0,.35);
+  --blue:#007aff; --green:#34c759; --orange:#ff9500; --red:#ff3b30; --yellow:#ffcc00;
+  --indigo:#5856d6; --teal:#30b0c7; --gray:#8e8e93; --purple:#af52de;
+  --tile-on:#fff; --tile-on-label:#000;
+  --shadow:0 1px 2px rgba(0,0,0,.04);
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){
+  --bg:#000; --cell:#1c1c1e; --cell2:#2c2c2e; --elev:#1c1c1e;
+  --label:#fff; --label2:rgba(235,235,245,.6); --label3:rgba(235,235,245,.3);
+  --sep:rgba(84,84,88,.55); --fill:rgba(118,118,128,.24); --fill2:rgba(118,118,128,.32);
+  --bar:rgba(22,22,24,.8); --dim:rgba(0,0,0,.55);
+  --blue:#0a84ff; --green:#30d158; --orange:#ff9f0a; --red:#ff453a; --yellow:#ffd60a;
+  --indigo:#5e5ce6; --teal:#40c8e0; --purple:#bf5af2;
+  --tile-on:rgba(255,255,255,.92); --tile-on-label:#000; --shadow:none; color-scheme:dark;
+}}
+:root[data-theme=dark]{
+  --bg:#000; --cell:#1c1c1e; --cell2:#2c2c2e; --elev:#1c1c1e;
+  --label:#fff; --label2:rgba(235,235,245,.6); --label3:rgba(235,235,245,.3);
+  --sep:rgba(84,84,88,.55); --fill:rgba(118,118,128,.24); --fill2:rgba(118,118,128,.32);
+  --bar:rgba(22,22,24,.8); --dim:rgba(0,0,0,.55);
+  --blue:#0a84ff; --green:#30d158; --orange:#ff9f0a; --red:#ff453a; --yellow:#ffd60a;
+  --indigo:#5e5ce6; --teal:#40c8e0; --purple:#bf5af2;
+  --tile-on:rgba(255,255,255,.92); --tile-on-label:#000; --shadow:none; color-scheme:dark;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--label);font:17px/1.29 var(--font);
+  -webkit-font-smoothing:antialiased;letter-spacing:-.41px}
+button{font:inherit;color:inherit;letter-spacing:inherit;border:0;background:none;padding:0;cursor:pointer}
+svg.i{width:1em;height:1em;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex:none}
+
+/* ── Layout ─────────────────────────────────────────── */
+.app{min-height:100vh;padding:env(safe-area-inset-top) env(safe-area-inset-right) 0 env(safe-area-inset-left)}
+.view{display:none;padding:0 16px calc(96px + env(safe-area-inset-bottom));max-width:720px;margin:0 auto}
+.view.active{display:block;animation:fade .25s ease}
+@keyframes fade{from{opacity:.4}to{opacity:1}}
+
+/* Compact nav bar (appears on scroll) */
+.navbar{position:fixed;inset:0 0 auto 0;z-index:20;padding-top:env(safe-area-inset-top);
+  background:transparent;transition:background .2s,border-color .2s;border-bottom:.5px solid transparent}
+.navbar .inner{height:44px;display:flex;align-items:center;justify-content:center;position:relative}
+.navbar .ttl{font-weight:600;opacity:0;transition:opacity .2s}
+.navbar.scrolled{background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(20px);
+  backdrop-filter:saturate(180%) blur(20px);border-color:var(--sep)}
+.navbar.scrolled .ttl{opacity:1}
+.conn{position:absolute;right:16px;display:flex;align-items:center;gap:6px;font-size:13px;color:var(--label2)}
+.conn .dot{width:8px;height:8px;border-radius:50%;background:var(--green)}
+.conn.off .dot{background:var(--red)}
+.conn.sim .dot{background:var(--orange)}
+
+.large{padding:52px 4px 6px}
+.large h1{margin:0;font-size:34px;line-height:41px;font-weight:700;letter-spacing:.37px}
+.large p{margin:2px 0 0;color:var(--label2);font-size:15px;letter-spacing:-.24px}
+
+/* ── Hero door card ─────────────────────────────────── */
+.hero{margin-top:14px;background:var(--cell);border-radius:22px;padding:18px;box-shadow:var(--shadow);overflow:hidden}
+.hero-top{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.hero-state{font-size:28px;font-weight:700;letter-spacing:.36px;line-height:34px}
+.hero-sub{font-size:15px;color:var(--label2);margin-top:2px;letter-spacing:-.24px}
+.badge{display:inline-flex;align-items:center;gap:5px;font-size:13px;font-weight:600;padding:5px 10px;border-radius:99px;
+  background:var(--fill);color:var(--label2);white-space:nowrap}
+.badge.green{background:color-mix(in srgb,var(--green) 16%,transparent);color:var(--green)}
+.badge.orange{background:color-mix(in srgb,var(--orange) 16%,transparent);color:var(--orange)}
+.badge.red{background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)}
+
+.garage{display:block;width:100%;max-width:340px;margin:14px auto 6px;height:auto}
+.garage .frame{fill:var(--cell2)}
+.garage .opening{fill:var(--bg)}
+.garage .slat{fill:var(--fill2)}
+.garage .slat-line{stroke:var(--sep);stroke-width:1}
+.garage #slats{transition:transform .3s linear}
+.garage #glow{transition:opacity .4s}
+.garage #bulb{transition:fill .3s}
+
+.progress{height:4px;border-radius:2px;background:var(--fill);overflow:hidden;margin:8px 0 16px}
+.progress>i{display:block;height:100%;width:0;background:var(--blue);border-radius:2px;transition:width .3s linear}
+.moving .progress>i{background:var(--orange)}
+
+.btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;height:50px;border-radius:14px;
+  background:var(--blue);color:#fff;font-weight:600;transition:transform .12s,opacity .2s}
+.btn:active{transform:scale(.97);opacity:.85}
+.btn[disabled]{background:var(--fill);color:var(--label3);transform:none;cursor:default}
+.btn.tinted{background:color-mix(in srgb,var(--blue) 15%,transparent);color:var(--blue)}
+.btn.danger{background:color-mix(in srgb,var(--red) 15%,transparent);color:var(--red)}
+
+/* ── Tiles (Apple Home style) ───────────────────────── */
+.section-h{font-size:22px;font-weight:700;letter-spacing:.35px;margin:28px 4px 10px}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+.tile{display:flex;align-items:center;gap:12px;min-height:72px;padding:12px 14px;border-radius:18px;text-align:left;
+  background:var(--cell);box-shadow:var(--shadow);transition:transform .12s,background .25s}
+.tile:active{transform:scale(.96)}
+.tile .ic{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-size:20px;
+  background:var(--fill);color:var(--label2);flex:none;transition:background .25s,color .25s}
+.tile>span:last-child{min-width:0}
+.tile .t{font-size:15px;font-weight:600;letter-spacing:-.24px;line-height:20px;overflow:hidden;
+  display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow-wrap:anywhere}
+.tile .s{font-size:13px;color:var(--label2);letter-spacing:-.08px;line-height:18px}
+.tile.on{background:var(--tile-on)}
+.tile.on .t{color:var(--tile-on-label)}
+.tile.on .s{color:rgba(0,0,0,.55)}
+.tile.on.amber .ic{background:var(--yellow);color:#000}
+.tile.on.blue .ic{background:var(--blue);color:#fff}
+.tile.on.green .ic{background:var(--green);color:#fff}
+.tile.on.orange .ic{background:var(--orange);color:#fff}
+
+/* ── Inset grouped lists ────────────────────────────── */
+.group-h{font-size:13px;color:var(--label2);text-transform:uppercase;letter-spacing:-.08px;margin:28px 16px 7px}
+.group-f{font-size:13px;color:var(--label2);letter-spacing:-.08px;margin:7px 16px 0;line-height:18px}
+.list{background:var(--cell);border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+.row{display:flex;align-items:center;gap:12px;min-height:44px;padding:0 16px;width:100%;text-align:left;position:relative}
+.row+.row::before{content:"";position:absolute;top:0;right:0;left:var(--inset,16px);border-top:.5px solid var(--sep)}
+.list.icons .row{--inset:57px}
+button.row:active,a.row:active{background:var(--fill)}
+.row .sq{width:29px;height:29px;border-radius:7px;display:grid;place-items:center;color:#fff;font-size:17px;flex:none}
+.row .lbl{flex:1;padding:11px 0;min-width:0}
+.row .lbl small{display:block;font-size:13px;color:var(--label2);letter-spacing:-.08px;margin-top:1px;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .val{color:var(--label2);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:55%}
+.row .val.mono{font-family:var(--mono);font-size:15px;letter-spacing:0}
+.row .chev{color:var(--label3);font-size:14px;margin-right:-4px}
+.row.tint .lbl{color:var(--blue)}
+.list:not(.notify-on) .nmore{display:none!important}
+.row.destructive .lbl{color:var(--red)}
+.ok{color:var(--green)!important}.warn{color:var(--orange)!important}.bad{color:var(--red)!important}
+
+/* iOS switch */
+.switch{position:relative;width:51px;height:31px;flex:none}
+.switch input{appearance:none;-webkit-appearance:none;margin:0;width:100%;height:100%;border-radius:16px;background:var(--fill2);
+  cursor:pointer;transition:background .25s}
+.switch input:checked{background:var(--green)}
+.switch input::after{content:"";position:absolute;top:2px;left:2px;width:27px;height:27px;border-radius:50%;background:#fff;
+  box-shadow:0 3px 8px rgba(0,0,0,.15),0 1px 1px rgba(0,0,0,.16);transition:transform .25s cubic-bezier(.3,.7,.4,1)}
+.switch input:checked::after{transform:translateX(20px)}
+
+/* Segmented control */
+.seg{display:flex;background:var(--fill);border-radius:9px;padding:2px;margin:8px 0}
+.seg button{flex:1;height:28px;border-radius:7px;font-size:13px;font-weight:500;letter-spacing:-.08px;transition:background .2s}
+.seg button.sel{background:var(--elev);box-shadow:0 3px 8px rgba(0,0,0,.12),0 3px 1px rgba(0,0,0,.04);font-weight:600}
+:root[data-theme=dark] .seg button.sel{background:#636366}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]) .seg button.sel{background:#636366}}
+
+/* Activity */
+.ev .sq{font-size:15px}
+.ev .time{font-size:15px;color:var(--label2);white-space:nowrap;font-variant-numeric:tabular-nums}
+.empty{padding:40px 16px;text-align:center;color:var(--label2);font-size:15px}
+
+/* ── Tab bar / sidebar ──────────────────────────────── */
+.tabbar{position:fixed;left:0;right:0;bottom:0;z-index:30;display:flex;justify-content:space-around;
+  padding:6px env(safe-area-inset-right) calc(env(safe-area-inset-bottom) + 4px) env(safe-area-inset-left);
+  background:var(--bar);-webkit-backdrop-filter:saturate(180%) blur(20px);backdrop-filter:saturate(180%) blur(20px);
+  border-top:.5px solid var(--sep)}
+.tabbar button{flex:1;max-width:120px;display:flex;flex-direction:column;align-items:center;gap:3px;
+  font-size:10px;font-weight:500;letter-spacing:.1px;color:var(--gray);padding:2px 0}
+.tabbar button svg{font-size:25px}
+.tabbar button.sel{color:var(--blue)}
+.side-brand{display:none}
+
+@media (min-width:900px){
+  .app{padding-left:300px}
+  .tabbar{top:0;right:auto;width:300px;flex-direction:column;justify-content:flex-start;gap:2px;
+    padding:calc(env(safe-area-inset-top) + 20px) 14px 20px;border-top:0;border-right:.5px solid var(--sep);background:var(--cell)}
+  .side-brand{display:flex;align-items:center;gap:10px;padding:8px 10px 22px;font-size:28px;font-weight:700}
+  .side-brand img{width:36px;height:36px;border-radius:9px}
+  .tabbar button{max-width:none;flex:none;flex-direction:row;gap:12px;font-size:17px;font-weight:400;letter-spacing:-.41px;
+    color:var(--label);padding:10px;border-radius:10px}
+  .tabbar button svg{font-size:22px;color:var(--blue)}
+  .tabbar button.sel{background:var(--blue);color:#fff}
+  .tabbar button.sel svg{color:#fff}
+  .navbar{left:300px}
+  .tiles{grid-template-columns:repeat(4,1fr)}
+  .view{padding-bottom:48px}
+  .home-grid{display:grid;grid-template-columns:1fr;gap:0}
+}
+
+/* ── Sheets, action sheet, toast ────────────────────── */
+.dim{position:fixed;inset:0;z-index:40;background:var(--dim);opacity:0;pointer-events:none;transition:opacity .3s}
+.dim.show{opacity:1;pointer-events:auto}
+.sheet{position:fixed;left:0;right:0;bottom:0;z-index:50;max-width:560px;margin:0 auto;background:var(--bg);
+  border-radius:14px 14px 0 0;padding:8px 16px calc(24px + env(safe-area-inset-bottom));
+  transform:translateY(105%);transition:transform .38s cubic-bezier(.32,.72,0,1);max-height:92vh;overflow:auto}
+.sheet.show{transform:none}
+.grab{width:36px;height:5px;border-radius:3px;background:var(--label3);margin:0 auto 6px}
+.sheet-h{display:flex;align-items:center;justify-content:space-between;height:44px;margin-bottom:4px}
+.sheet-h b{font-size:17px;font-weight:600}
+.sheet-h button{color:var(--blue);font-size:17px}
+.sheet .hero-ic{width:64px;height:64px;border-radius:16px;display:grid;place-items:center;font-size:34px;color:#fff;margin:6px auto 12px}
+.sheet h2{text-align:center;margin:0 0 6px;font-size:22px;letter-spacing:.35px}
+.sheet .lead{text-align:center;color:var(--label2);font-size:15px;margin:0 8px 18px;letter-spacing:-.24px}
+.steps{counter-reset:s;list-style:none;margin:0 0 20px;padding:0;background:var(--cell);border-radius:12px}
+.steps li{counter-increment:s;display:flex;gap:12px;padding:12px 16px;font-size:15px;letter-spacing:-.24px;position:relative}
+.steps li+li::before{content:"";position:absolute;top:0;left:52px;right:0;border-top:.5px solid var(--sep)}
+.steps li::after{content:counter(s);order:-1;flex:none;width:24px;height:24px;border-radius:50%;display:grid;place-items:center;
+  background:var(--blue);color:#fff;font-size:13px;font-weight:600}
+.field{display:flex;align-items:center;background:var(--cell);border-radius:12px;padding:0 16px;height:48px;margin-bottom:8px}
+.field input{flex:1;border:0;outline:0;background:none;color:var(--label);font:inherit;font-family:var(--mono);height:100%}
+.sheet .btn+.btn{margin-top:10px}
+
+.asheet{position:fixed;left:8px;right:8px;bottom:calc(8px + env(safe-area-inset-bottom));z-index:50;max-width:520px;margin:0 auto;
+  transform:translateY(130%);transition:transform .35s cubic-bezier(.32,.72,0,1)}
+.asheet.show{transform:none}
+.asheet .grp{background:var(--bar);-webkit-backdrop-filter:blur(30px);backdrop-filter:blur(30px);border-radius:14px;overflow:hidden}
+.asheet .msg{padding:14px 16px;text-align:center;font-size:13px;color:var(--label2);border-bottom:.5px solid var(--sep)}
+.asheet .msg b{display:block;font-size:13px;font-weight:600;margin-bottom:2px}
+.asheet .grp button{display:block;width:100%;height:57px;font-size:20px;color:var(--blue);letter-spacing:.38px}
+.asheet .grp button+button{border-top:.5px solid var(--sep)}
+.asheet .red{color:var(--red)!important}
+.asheet .cancel{margin-top:8px;background:var(--elev)!important;font-weight:600}
+.asheet .cancel{display:block;width:100%;height:57px;font-size:20px;color:var(--blue);border-radius:14px}
+
+.toast{position:fixed;top:calc(env(safe-area-inset-top) + 10px);left:50%;z-index:60;
+  transform:translate(-50%,-160%);transition:transform .45s cubic-bezier(.32,.72,0,1);
+  display:flex;align-items:center;gap:10px;padding:12px 18px;border-radius:99px;max-width:calc(100vw - 32px);
+  background:var(--elev);box-shadow:0 8px 32px rgba(0,0,0,.18);font-size:15px;font-weight:500;letter-spacing:-.24px}
+.toast.show{transform:translate(-50%,0)}
+.toast svg{font-size:20px}
+
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-garage" viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5V20H3z"/><path d="M7 20v-8h10v8M7 15h10M7 17.5h10"/></symbol>
+  <symbol id="i-bulb" viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2V16h5v-.1c0-.8.4-1.5 1-2A6 6 0 0 0 12 3z"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></symbol>
+  <symbol id="i-unlock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 7.7-1.5"/></symbol>
+  <symbol id="i-sensor" viewBox="0 0 24 24"><rect x="4" y="5" width="6" height="14" rx="1.5"/><rect x="14" y="5" width="6" height="14" rx="1.5"/><path d="M12 9v6"/></symbol>
+  <symbol id="i-antenna" viewBox="0 0 24 24"><path d="M12 13v8M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"/><circle cx="12" cy="12" r="1"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="4"/><path d="m10.8 12.2 8.2-8.2M16 7l3 3M14 9l2 2"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></symbol>
+  <symbol id="i-sync" viewBox="0 0 24 24"><path d="M21 12a9 9 0 0 1-15.5 6.2L3 16M3 12a9 9 0 0 1 15.5-6.2L21 8M21 3v5h-5M3 21v-5h5"/></symbol>
+  <symbol id="i-wave" viewBox="0 0 24 24"><path d="M2 12h3l2-6 4 12 3-9 2 3h6"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5 7l1 13h12l1-13M9 7V4h6v3"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.9 1.9 0 0 0 3.4 0"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></symbol>
+  <symbol id="i-halo" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3.5"/></symbol>
+  <symbol id="i-battery" viewBox="0 0 24 24"><rect x="2" y="7" width="17" height="10" rx="2"/><path d="M22 11v2M5 10v4"/></symbol>
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M5 17H3v-5l2.5-5.5A2 2 0 0 1 7.3 5h9.4a2 2 0 0 1 1.8 1.5L21 12v5h-2"/><path d="M3 12h18M9 17h6"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></symbol>
+  <symbol id="i-motion" viewBox="0 0 24 24"><circle cx="13" cy="4" r="2"/><path d="m9 21 2-6 3 3v4M7 12l3-4 4 1 3 3M11 15 10 8"/></symbol>
+  <symbol id="i-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></symbol>
+</svg>
 
-  <!-- TOP APP BAR -->
-  <header class="app-bar">
-    <div class="app-bar-left">
-      <button class="icon-btn" title="Refresh Status" onclick="fetchStatus()">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <polyline points="23 4 23 10 17 10"/>
-          <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-        </svg>
-      </button>
-      <span class="app-bar-title">Chamberlain GDO</span>
-    </div>
-
-    <div class="app-bar-right">
-      <button id="soundToggleBtn" class="icon-btn" title="Toggle Audio Feedback" onclick="toggleSound()">
-        <span id="soundIcon" style="font-size: 1rem;">🔊</span>
-      </button>
-      <button id="themeToggleBtn" class="icon-btn" title="Toggle Dark/Light Theme" onclick="toggleTheme()">
-        <svg id="moonIcon" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-        </svg>
-        <svg id="sunIcon" style="display: none;" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="5"/>
-          <line x1="12" y1="1" x2="12" y2="3"/>
-          <line x1="12" y1="21" x2="12" y2="23"/>
-          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
-          <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-          <line x1="1" y1="12" x2="3" y2="12"/>
-          <line x1="21" y1="12" x2="23" y2="12"/>
-          <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
-          <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-        </svg>
-      </button>
-    </div>
-  </header>
-
-  <!-- AREA & INTEGRATION SUB-HEADER -->
-  <div class="sub-header">
-    <div class="area-badge">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-        <polyline points="9 22 9 12 15 12 15 22"/>
-      </svg>
-      <span>In Garage • Raspberry Pi 3B+</span>
-    </div>
-
-    <div class="integration-brand">
-      <div class="integration-logo">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-          <line x1="9" y1="14" x2="15" y2="14"/>
-          <line x1="9" y1="18" x2="15" y2="18"/>
-        </svg>
-      </div>
-      <span>Security+ 1.0</span>
-    </div>
+<header class="navbar" id="navbar">
+  <div class="inner">
+    <span class="ttl" id="navTitle">Home</span>
+    <span class="conn" id="conn"><span class="dot"></span><span id="connText">Live</span></span>
   </div>
+</header>
 
-  <!-- MAIN 2-COLUMN ESPHOME ADMIN GRID -->
-  <main class="admin-grid">
+<div class="app">
+  <!-- HOME -->
+  <main class="view active" id="view-home" data-title="Home">
+    <div class="large"><h1>Halo</h1><p id="summary">Connecting…</p></div>
 
-    <!-- LEFT COLUMN: Device Info, Configuration/RF Tools, Activity -->
-    <div class="admin-col">
-
-      <!-- 1. DEVICE INFO CARD -->
-      <section class="ha-card">
-        <div class="card-header">
-          <h2 class="card-title">Device info</h2>
+    <section class="hero" id="hero">
+      <div class="hero-top">
+        <div>
+          <div class="hero-state" id="doorState">—</div>
+          <div class="hero-sub" id="doorSub">Garage Door</div>
         </div>
-        <div class="card-body">
-          <div class="device-meta-list">
-            <div>chamberlain-gdo</div>
-            <div>by Raspberry Pi 3B+ • TI CC1101</div>
-            <div>Firmware: <span id="hwVersionText">0x14</span> (<span id="hwFreqText">315.00 MHz</span>)</div>
-            <div class="device-meta-row">
-              <span>Sensor MAC:</span>
-              <span class="mono-link" id="sensorMacDisplay" onclick="fetchStatus()">77CB8338</span>
-              <span>(Wyze v2)</span>
-            </div>
-            <div class="device-meta-row">
-              <span>Remote ID:</span>
-              <span class="mono-link" id="hwFixed" onclick="openSyncModal()">----</span>
-            </div>
-          </div>
+        <span class="badge" id="doorBadge">—</span>
+      </div>
+      <svg class="garage" viewBox="0 0 320 190" aria-hidden="true">
+        <defs>
+          <clipPath id="doorClip"><rect x="40" y="56" width="240" height="128"/></clipPath>
+          <radialGradient id="glowGrad" cx="50%" cy="0%" r="90%">
+            <stop offset="0%" stop-color="#ffd60a" stop-opacity=".55"/>
+            <stop offset="100%" stop-color="#ffd60a" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <path class="frame" d="M20 184V50L160 8l140 42v134h-20V56H40v128z"/>
+        <rect class="opening" x="40" y="56" width="240" height="128"/>
+        <rect id="glow" x="40" y="56" width="240" height="128" fill="url(#glowGrad)" opacity="0"/>
+        <circle id="bulb" cx="160" cy="34" r="6" fill="var(--fill2)"/>
+        <g clip-path="url(#doorClip)">
+          <g id="slats">
+            <rect class="slat" x="40" y="56"  width="240" height="31"/><line class="slat-line" x1="40" x2="280" y1="87"  y2="87"/>
+            <rect class="slat" x="40" y="88"  width="240" height="31"/><line class="slat-line" x1="40" x2="280" y1="119" y2="119"/>
+            <rect class="slat" x="40" y="120" width="240" height="31"/><line class="slat-line" x1="40" x2="280" y1="151" y2="151"/>
+            <rect class="slat" x="40" y="152" width="240" height="32"/>
+            <rect x="148" y="170" width="24" height="4" rx="2" fill="var(--label3)"/>
+          </g>
+        </g>
+      </svg>
+      <div class="progress"><i id="doorBar"></i></div>
+      <button class="btn" id="doorBtn" onclick="toggleDoor()"><svg class="i"><use href="#i-garage"/></svg><span>Open</span></button>
+    </section>
 
-          <div class="integration-row">
-            <div class="integration-row-left">
-              <div class="integration-logo" style="width:22px; height:22px;">
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                  <path d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0"/>
-                </svg>
-              </div>
-              <span id="hwRadioLabel">TI CC1101 (SPI0 CE0)</span>
-            </div>
-            <span style="font-family: var(--font-mono); font-size: 0.8rem; color: var(--text-secondary);" id="hwStatePill">IDLE</span>
-          </div>
-        </div>
-
-        <div class="card-footer-actions">
-          <button class="btn-ha-text" onclick="testRf()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0"/>
-            </svg>
-            Test 315MHz Carrier
-          </button>
-          <span style="font-size: 0.78rem; color: var(--text-secondary);" id="hwRepeatsText">8 bursts</span>
-        </div>
-      </section>
-
-      <!-- 2. CONFIGURATION & RF TOOLS CARD (ESPHome Entity Action Rows) -->
-      <section class="ha-card">
-        <div class="card-header">
-          <h2 class="card-title">Configuration</h2>
-          <button class="btn-ha-pill" onclick="openSyncModal()">Calibrate</button>
-        </div>
-        <div class="entity-list" style="padding-bottom: 8px;">
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                </svg>
-              </div>
-              <div class="entity-name-wrap">
-                <span class="entity-name">Pair Door (Purple Learn)</span>
-                <span class="entity-sub">Button 0 • 16 bursts</span>
-              </div>
-            </div>
-            <div class="entity-right">
-              <button class="btn-ha-text" onclick="openPairModal()">Press</button>
-            </div>
-          </div>
-
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 18h6m-4 4h2m-7-12a6 6 0 1 1 12 0c0 2.5-1.5 4-2.5 5.5-.5.8-.5 1.5-.5 2.5h-6c0-1 0-1.7-.5-2.5C7.5 14 6 12.5 6 10z"/>
-                </svg>
-              </div>
-              <div class="entity-name-wrap">
-                <span class="entity-name">Pair Opener Light</span>
-                <span class="entity-sub">Button 1 • Wall Panel</span>
-              </div>
-            </div>
-            <div class="entity-right">
-              <button class="btn-ha-text" onclick="openPairLightModal()">Press</button>
-            </div>
-          </div>
-
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="23 4 23 10 17 10"/>
-                  <polyline points="1 20 1 14 7 14"/>
-                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                </svg>
-              </div>
-              <div class="entity-name-wrap">
-                <span class="entity-name">Set Rolling Counter</span>
-                <span class="entity-sub">Manual forward sync</span>
-              </div>
-            </div>
-            <div class="entity-right">
-              <button class="btn-ha-text" onclick="openSyncModal()">Press</button>
-            </div>
-          </div>
-
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M12 4v16m8-8H4"/>
-                </svg>
-              </div>
-              <div class="entity-name-wrap">
-                <span class="entity-name">Regenerate Remote ID</span>
-                <span class="entity-sub">Requires re-pairing</span>
-              </div>
-            </div>
-            <div class="entity-right">
-              <button class="btn-ha-text" onclick="resetRemoteId()">Press</button>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- 3. ACTIVITY TIMELINE CARD -->
-      <section class="ha-card">
-        <div class="card-header">
-          <h2 class="card-title">Activity</h2>
-          <span style="font-size: 0.75rem; color: var(--ha-green); font-weight: 500;">● Live</span>
-        </div>
-        <div class="timeline-date" id="timelineTodayLabel">Today</div>
-        <div class="timeline-list" id="activityTimeline">
-          <div class="timeline-item">
-            <div class="timeline-rail">
-              <div class="timeline-dot"></div>
-              <div class="timeline-line"></div>
-            </div>
-            <div class="timeline-content">
-              <div class="timeline-main">
-                <span class="timeline-action">Listening for RF & sensor events...</span>
-                <span class="timeline-time">Just now</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
+    <h2 class="section-h">Accessories</h2>
+    <div class="tiles">
+      <button class="tile amber" id="tileLight" onclick="toggleLight()">
+        <span class="ic"><svg class="i"><use href="#i-bulb"/></svg></span>
+        <span><div class="t">Light</div><div class="s" id="lightSub">Tap to toggle</div></span>
+      </button>
+      <button class="tile blue" id="tileLock" onclick="toggleLock()">
+        <span class="ic"><svg class="i"><use href="#i-unlock" id="lockUse"/></svg></span>
+        <span><div class="t">Remote Lock</div><div class="s" id="lockSub">Unlocked</div></span>
+      </button>
+      <button class="tile green" id="tileSensor" onclick="go('device','sensorSec')">
+        <span class="ic"><svg class="i"><use href="#i-sensor"/></svg></span>
+        <span><div class="t" id="contactTitle">Contact</div><div class="s" id="sensorSub">No data</div></span>
+      </button>
+      <button class="tile blue" id="tileCar" onclick="carSheet()">
+        <span class="ic"><svg class="i"><use href="#i-car"/></svg></span>
+        <span><div class="t">Car</div><div class="s" id="carSub">No sensor</div></span>
+      </button>
     </div>
 
-    <!-- RIGHT COLUMN: Controls & Sensors -->
-    <div class="admin-col">
-
-      <!-- 1. CONTROLS CARD (Exact ESPHome Entity List Style) -->
-      <section class="ha-card">
-        <div class="card-header">
-          <h2 class="card-title">Controls</h2>
-        </div>
-
-        <div class="entity-list">
-          <!-- Garage Door Cover Control Row (Up / Stop / Down arrows) -->
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon active-blue" id="doorRowIcon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                  <line x1="9" y1="14" x2="15" y2="14"/>
-                  <line x1="9" y1="18" x2="15" y2="18"/>
-                </svg>
-              </div>
-              <div class="entity-name-wrap">
-                <span class="entity-name">Garage Door</span>
-                <span class="entity-sub" id="doorControlSub">Closed • 0%</span>
-              </div>
-            </div>
-            <div class="entity-right">
-              <div class="cover-btn-group">
-                <button id="btnCoverUp" class="cover-arrow-btn" title="Open Door" onclick="sendPreset(100)">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                    <line x1="12" y1="19" x2="12" y2="5"/>
-                    <polyline points="5 12 12 5 19 12"/>
-                  </svg>
-                </button>
-                <button id="btnCoverStop" class="cover-arrow-btn" title="Stop / Toggle" onclick="toggleDoor()">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <rect x="6" y="6" width="12" height="12" rx="1"/>
-                  </svg>
-                </button>
-                <button id="btnCoverDown" class="cover-arrow-btn" title="Close Door" onclick="sendPreset(0)">
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
-                    <line x1="12" y1="5" x2="12" y2="19"/>
-                    <polyline points="19 12 12 19 5 12"/>
-                  </svg>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Vent 25% Preset -->
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M4 14h16M4 18h16M4 10h16"/>
-                </svg>
-              </div>
-              <span class="entity-name">Vent Position (25%)</span>
-            </div>
-            <div class="entity-right">
-              <button class="btn-ha-text" onclick="sendPreset(25)">Press</button>
-            </div>
-          </div>
-
-          <!-- Opener Courtesy Light Switch -->
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon" id="lightRowIcon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 18h6m-4 4h2m-7-12a6 6 0 1 1 12 0c0 2.5-1.5 4-2.5 5.5-.5.8-.5 1.5-.5 2.5h-6c0-1 0-1.7-.5-2.5C7.5 14 6 12.5 6 10z"/>
-                </svg>
-              </div>
-              <div class="entity-name-wrap">
-                <span class="entity-name">Opener Light</span>
-                <span class="entity-sub" id="lightSubtitle">Off (4.5m auto-off)</span>
-              </div>
-            </div>
-            <div class="entity-right">
-              <label class="ha-switch">
-                <input type="checkbox" id="lightToggleSwitch" onchange="toggleLightSwitch(this.checked)">
-                <span class="ha-slider"></span>
-              </label>
-            </div>
-          </div>
-
-          <!-- Remote Lock Switch -->
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon" id="lockRowIcon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                </svg>
-              </div>
-              <div class="entity-name-wrap">
-                <span class="entity-name">Remote Lock</span>
-                <span class="entity-sub" id="lockSubtitle">Unlocked (RF Enabled)</span>
-              </div>
-            </div>
-            <div class="entity-right">
-              <label class="ha-switch">
-                <input type="checkbox" id="lockToggleSwitch" onchange="toggleLockSwitch(this.checked)">
-                <span class="ha-slider"></span>
-              </label>
-            </div>
-          </div>
-
-          <!-- Request Door Toggle Action -->
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"/>
-                  <path d="M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2"/>
-                  <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"/>
-                  <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"/>
-                </svg>
-              </div>
-              <span class="entity-name">Request Door Toggle</span>
-            </div>
-            <div class="entity-right">
-              <button id="doorActionBtn" class="btn-ha-text" onclick="toggleDoor()">Press</button>
-            </div>
-          </div>
-        </div>
-
-        <button class="card-footer-link" onclick="toggleDoor()">
-          <span id="doorPrimaryFooterLabel">Toggle Garage Door</span>
-          <span>›</span>
-        </button>
-      </section>
-
-      <!-- 2. SENSORS & DIAGNOSTIC TELEMETRY CARD -->
-      <section class="ha-card">
-        <div class="card-header">
-          <h2 class="card-title">Sensors</h2>
-        </div>
-
-        <!-- Compact Door Position Schematic Bar -->
-        <div class="schematic-bar">
-          <svg class="mini-svg" viewBox="0 0 120 90" fill="none">
-            <defs>
-              <clipPath id="miniDoorClip">
-                <rect x="22" y="34" width="76" height="48" rx="2"/>
-              </clipPath>
-            </defs>
-            <path d="M60 8L10 32V82H110V32L60 8Z" stroke="var(--text-secondary)" stroke-width="2" opacity="0.5"/>
-            <polygon id="garageLightBeam" points="60,26 16,82 104,82" fill="#ff9800" opacity="0"/>
-            <circle id="ceilingBulb" cx="60" cy="27" r="3" fill="var(--text-secondary)"/>
-            <g clip-path="url(#miniDoorClip)">
-              <g id="slatsGroup" class="slat" transform="translate(0, 0)">
-                <rect x="24" y="36" width="72" height="6" rx="1" fill="var(--slat-fill)"/>
-                <rect x="24" y="44" width="72" height="6" rx="1" fill="var(--slat-fill)"/>
-                <rect x="24" y="52" width="72" height="6" rx="1" fill="var(--slat-fill)"/>
-                <rect x="24" y="60" width="72" height="6" rx="1" fill="var(--slat-fill)"/>
-                <rect x="24" y="68" width="72" height="6" rx="1" fill="var(--slat-fill)"/>
-                <rect id="slatHighlight" x="24" y="76" width="72" height="5" rx="1" fill="var(--ha-blue)"/>
-              </g>
-            </g>
-          </svg>
-
-          <div class="schematic-info">
-            <div class="schematic-top">
-              <span>Cover Position</span>
-              <span id="sliderPctLabel" style="font-weight: 500; color: var(--text-primary);">0%</span>
-            </div>
-            <div class="progress-track">
-              <div id="rangeFill" class="progress-fill"></div>
-            </div>
-            <div class="schematic-top" style="font-size: 0.72rem;">
-              <span>Ground-Truth: Wyze Sense v2</span>
-              <span id="telemSynced" style="color: var(--ha-green);">Synced</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="entity-list">
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
-                </svg>
-              </div>
-              <span class="entity-name">Door Open (Contact)</span>
-            </div>
-            <div class="entity-right">
-              <span class="entity-value ok" id="sensorStateTag">Closed</span>
-            </div>
-          </div>
-
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-                  <circle cx="12" cy="12" r="3"/>
-                </svg>
-              </div>
-              <span class="entity-name">Door State</span>
-            </div>
-            <div class="entity-right">
-              <span class="entity-value" id="doorState">Closed</span>
-            </div>
-          </div>
-
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M5 12h14M5 12l4-4m-4 4l4 4m10-4l-4-4m4 4l-4 4"/>
-                </svg>
-              </div>
-              <span class="entity-name">Obstruction (Safety Beam)</span>
-            </div>
-            <div class="entity-right">
-              <span class="entity-value ok" id="telemObstruction">Clear</span>
-            </div>
-          </div>
-
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="10"/>
-                </svg>
-              </div>
-              <span class="entity-name">Opener Light State</span>
-            </div>
-            <div class="entity-right">
-              <span class="entity-value" id="sensorLightState">Off</span>
-            </div>
-          </div>
-
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <circle cx="12" cy="12" r="3"/>
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4"/>
-                </svg>
-              </div>
-              <span class="entity-name">Motor State</span>
-            </div>
-            <div class="entity-right">
-              <span class="entity-value" id="telemMotor">Idle</span>
-            </div>
-          </div>
-
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="6" y="2" width="12" height="20" rx="3"/>
-                  <circle cx="12" cy="8" r="2"/>
-                </svg>
-              </div>
-              <span class="entity-name">Wall Console</span>
-            </div>
-            <div class="entity-right">
-              <span class="entity-value" id="telemWall">Ready</span>
-            </div>
-          </div>
-
-          <div class="section-divider-label">Diagnostic</div>
-
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polyline points="23 4 23 10 17 10"/>
-                  <polyline points="1 20 1 14 7 14"/>
-                  <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-                </svg>
-              </div>
-              <span class="entity-name">Rolling Code</span>
-            </div>
-            <div class="entity-right">
-              <span class="entity-value mono" id="telemCycles">----</span>
-            </div>
-          </div>
-
-          <div class="entity-row">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M5 12.55a11 11 0 0 1 14.08 0"/>
-                  <path d="M1.42 9a16 16 0 0 1 21.16 0"/>
-                  <path d="M8.53 16.11a6 6 0 0 1 6.95 0"/>
-                  <line x1="12" y1="20" x2="12.01" y2="20"/>
-                </svg>
-              </div>
-              <span class="entity-name">Wyze Sensor Signal</span>
-            </div>
-            <div class="entity-right">
-              <span class="entity-value mono" id="sensorRssiTag">-32 dBm</span>
-            </div>
-          </div>
-
-          <div class="entity-row" style="padding-bottom: 10px;">
-            <div class="entity-left">
-              <div class="entity-icon">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="2" y="7" width="16" height="10" rx="2" ry="2"/>
-                  <line x1="22" y1="11" x2="22" y2="13"/>
-                </svg>
-              </div>
-              <span class="entity-name">Wyze Sensor Battery</span>
-            </div>
-            <div class="entity-right">
-              <span class="entity-value mono" id="sensorBattTag">98%</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-    </div>
+    <div class="group-h">Recent</div>
+    <div class="list icons" id="recent"></div>
   </main>
 
-  <!-- MODALS -->
-  <div id="pairModal" class="modal-overlay">
-    <div class="modal-box">
-      <div class="modal-title">Pair Garage Door (Button 0)</div>
-      <div class="modal-step"><strong>Step 1:</strong> Walk over to your Chamberlain ceiling motor unit.</div>
-      <div class="modal-step"><strong>Step 2:</strong> Press and release the <strong>PURPLE</strong> learn button. The LED will turn solid ON for 30 seconds.</div>
-      <div class="modal-step"><strong>Step 3:</strong> Click "Send Pairing Signal" below. Opener courtesy light will click and flash twice.</div>
-      <div class="modal-actions">
-        <button class="btn-ha-text" style="color: var(--text-secondary);" onclick="closePairModal()">Cancel</button>
-        <button id="sendPairBtn" class="btn-ha-text" onclick="sendPair()">Send Pairing Signal</button>
-      </div>
+  <!-- ACTIVITY -->
+  <main class="view" id="view-activity" data-title="Activity">
+    <div class="large"><h1>Activity</h1><p>Last 20 events on this module</p></div>
+    <div class="group-h">Today</div>
+    <div class="list icons" id="activity"><div class="empty">No activity yet</div></div>
+  </main>
+
+  <!-- DEVICE -->
+  <main class="view" id="view-device" data-title="Device">
+    <div class="large"><h1>Device</h1><p id="deviceSub">Halo Garage Module</p></div>
+
+    <div class="group-h">Virtual Remote</div>
+    <div class="list">
+      <div class="row"><span class="lbl">Remote ID</span><span class="val mono" id="dFixed">—</span></div>
+      <div class="row"><span class="lbl">Rolling Code</span><span class="val mono" id="dRolling">—</span></div>
+      <div class="row"><span class="lbl">Protocol</span><span class="val" id="dProto">Security+ 1.0</span></div>
+      <div class="row"><span class="lbl">Frequency</span><span class="val" id="dFreq">315 MHz</span></div>
+      <div class="row"><span class="lbl">Bursts per Press</span><span class="val" id="dRepeats">8</span></div>
     </div>
-  </div>
 
-  <div id="pairLightModal" class="modal-overlay">
-    <div class="modal-box">
-      <div class="modal-title">Pair Opener Light (Button 1)</div>
-      <div class="modal-step"><strong>Step 1:</strong> Ensure garage door is currently <strong>CLOSED</strong>.</div>
-      <div class="modal-step"><strong>Step 2:</strong> At your <strong>Multi-Function Wall Console</strong> (do not press ceiling purple button), press and hold <strong>LIGHT</strong>, then press and hold <strong>LOCK</strong>.</div>
-      <div class="modal-step"><strong>Step 3:</strong> Click "Send Light Pairing Signal" while holding the wall buttons until lights flash.</div>
-      <div class="modal-actions">
-        <button class="btn-ha-text" style="color: var(--text-secondary);" onclick="closePairLightModal()">Cancel</button>
-        <button id="sendPairLightBtn" class="btn-ha-text" style="color: var(--ha-amber);" onclick="sendPairLight()">Send Light Pairing Signal</button>
-      </div>
+    <div class="group-h" id="radioSec">Radio</div>
+    <div class="list">
+      <div class="row"><span class="lbl">Transceiver</span><span class="val" id="dRadio">—</span></div>
+      <div class="row"><span class="lbl">Part / Version</span><span class="val mono" id="dChip">—</span></div>
+      <div class="row"><span class="lbl">MARC State</span><span class="val mono" id="dMarc">—</span></div>
     </div>
-  </div>
 
-  <div id="syncModal" class="modal-overlay">
-    <div class="modal-box">
-      <div class="modal-title">Manual Counter Calibration</div>
-      <p style="font-size: 0.85rem; color: var(--text-secondary);">If rolling counter desynchronized from the opener, enter a forward counter value:</p>
-      <input type="number" id="syncInput" class="input-field" placeholder="e.g. 5000">
-      <div class="modal-actions">
-        <button class="btn-ha-text" style="color: var(--text-secondary);" onclick="closeSyncModal()">Cancel</button>
-        <button class="btn-ha-text" onclick="submitSync()">Save Counter</button>
-      </div>
+    <div class="group-h" id="sensorSec">Contact Sensor</div>
+    <div class="list">
+      <button class="row" onclick="renameSensor('door')"><span class="lbl">Name</span><span class="val" id="sName">—</span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <div class="row"><span class="lbl">ID</span><span class="val mono" id="sMac">—</span></div>
+      <div class="row"><span class="lbl">Contact</span><span class="val" id="sState">—</span></div>
+      <div class="row"><span class="lbl">Battery</span><span class="val" id="sBatt">—</span></div>
+      <div class="row"><span class="lbl">Signal</span><span class="val" id="sRssi">—</span></div>
+      <div class="row"><span class="lbl">Last Seen</span><span class="val" id="sSeen">—</span></div>
     </div>
+    <div class="group-f">Wyze Sense via MQTT, or POST to <code>/api/sensor</code>. A sensor report always overrides the simulated door position.</div>
+
+    <div class="group-h" id="motionSec">Car &amp; Motion Sensor</div>
+    <div class="list">
+      <button class="row" onclick="carSheet()"><span class="lbl">Car</span><span class="val" id="cState">—</span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="row" onclick="renameSensor('motion')"><span class="lbl">Motion Sensor</span><span class="val" id="mName">—</span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <div class="row"><span class="lbl">ID</span><span class="val mono" id="mMac">—</span></div>
+      <div class="row"><span class="lbl">Motion</span><span class="val" id="mState">—</span></div>
+      <div class="row"><span class="lbl">Last Motion</span><span class="val" id="mLast">—</span></div>
+      <div class="row"><span class="lbl">Battery</span><span class="val" id="mBatt">—</span></div>
+      <div class="row"><span class="lbl">Signal</span><span class="val" id="mRssi">—</span></div>
+    </div>
+    <div class="group-f" id="carNote">Halo estimates whether the car is home from motion around each door cycle: motion before opening means someone drove out, motion after closing means someone got out. Tap Car to correct it.</div>
+
+    <div class="group-h">Pairing</div>
+    <div class="list icons">
+      <button class="row" onclick="openSheet('pairDoor')"><span class="sq" style="background:var(--indigo)"><svg class="i"><use href="#i-garage"/></svg></span><span class="lbl">Pair Door</span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="row" onclick="openSheet('pairLight')"><span class="sq" style="background:var(--yellow);color:#000"><svg class="i"><use href="#i-bulb"/></svg></span><span class="lbl">Pair Light</span><svg class="i chev"><use href="#i-chev"/></svg></button>
+    </div>
+
+    <div class="group-h">Maintenance</div>
+    <div class="list icons">
+      <button class="row" onclick="openSheet('sync')"><span class="sq" style="background:var(--blue)"><svg class="i"><use href="#i-sync"/></svg></span><span class="lbl">Resync Rolling Code</span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="row" onclick="testRf()"><span class="sq" style="background:var(--orange)"><svg class="i"><use href="#i-wave"/></svg></span><span class="lbl">RF Test<small>3 s of test bursts for an SDR</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+      <button class="row" onclick="confirmReset()"><span class="sq" style="background:var(--red)"><svg class="i"><use href="#i-key"/></svg></span><span class="lbl">New Remote ID<small>Requires re-pairing</small></span><svg class="i chev"><use href="#i-chev"/></svg></button>
+    </div>
+
+    <div class="group-h" id="notifySec">Door Alerts</div>
+    <div class="list">
+      <div class="row"><span class="lbl">Notify Me<small>Garage door only</small></span><label class="switch"><input type="checkbox" id="nEnabled" onchange="setNotify({enabled: this.checked})"></label></div>
+      <div class="row nmore"><span class="lbl">When Opened</span><label class="switch"><input type="checkbox" id="nOpen" onchange="setNotify({on_open: this.checked})"></label></div>
+      <div class="row nmore"><span class="lbl">When Closed</span><label class="switch"><input type="checkbox" id="nClose" onchange="setNotify({on_close: this.checked})"></label></div>
+      <div class="row nmore" style="display:block;padding:10px 16px 6px"><span style="display:block">Left-Open Reminder</span>
+        <div class="seg" id="nLeftSeg"><button data-v="0">Off</button><button data-v="5">5 min</button><button data-v="10">10 min</button><button data-v="30">30 min</button></div></div>
+      <button class="row nmore" onclick="copyTopic()"><span class="lbl">ntfy Topic<small id="nTopicHint">Tap to copy</small></span><span class="val mono" id="nTopic">—</span></button>
+      <button class="row nmore tint" onclick="testNotify()"><span class="lbl">Send Test Notification</span></button>
+    </div>
+    <div class="group-f" id="nNote">Get a notification when the garage door opens, closes or is left open. Uses the free <b>ntfy</b> app (Apple Home needs a home hub for notifications).</div>
+
+    <div class="group-h">Appearance</div>
+    <div class="list"><div class="row" style="display:block;padding:6px 12px">
+      <div class="seg" id="themeSeg">
+        <button data-v="system">System</button><button data-v="light">Light</button><button data-v="dark">Dark</button>
+      </div>
+    </div></div>
+    <div class="group-f" style="text-align:center;margin-top:28px">Halo · Smart Garage<br><span id="footer">Security+ 1.0 · 315 MHz</span></div>
+  </main>
+</div>
+
+<nav class="tabbar" id="tabbar">
+  <div class="side-brand"><img src="/icon-192.png" alt="">Halo</div>
+  <button data-tab="home" class="sel"><svg class="i"><use href="#i-home"/></svg>Home</button>
+  <button data-tab="activity"><svg class="i"><use href="#i-list"/></svg>Activity</button>
+  <button data-tab="device"><svg class="i"><use href="#i-gear"/></svg>Device</button>
+</nav>
+
+<!-- Sheets -->
+<div class="dim" id="dim" onclick="closeAll()"></div>
+
+<section class="sheet" id="sheet-pairDoor">
+  <div class="grab"></div>
+  <div class="sheet-h"><span></span><b>Pair Door</b><button onclick="closeAll()">Done</button></div>
+  <div class="hero-ic" style="background:var(--indigo)"><svg class="i"><use href="#i-garage"/></svg></div>
+  <h2>Pair with Your Opener</h2>
+  <p class="lead">Halo acts as a new remote. You have 30 seconds after pressing Learn.</p>
+  <ol class="steps">
+    <li><span>Press and release the purple Learn button on the ceiling motor.</span></li>
+    <li><span>The Learn LED stays on for 30 seconds.</span></li>
+    <li><span>Tap Send. The opener light blinks when it accepts the code.</span></li>
+  </ol>
+  <button class="btn" id="pairDoorBtn" onclick="pair('door')">Send Pairing Signal</button>
+</section>
+
+<section class="sheet" id="sheet-pairLight">
+  <div class="grab"></div>
+  <div class="sheet-h"><span></span><b>Pair Light</b><button onclick="closeAll()">Done</button></div>
+  <div class="hero-ic" style="background:var(--yellow);color:#000"><svg class="i"><use href="#i-bulb"/></svg></div>
+  <h2>Pair the Courtesy Light</h2>
+  <p class="lead">Light uses remote button 1 and pairs from the wall console.</p>
+  <ol class="steps">
+    <li><span>Make sure the door is closed.</span></li>
+    <li><span>On the wall console, hold <b>Light</b>, then also hold <b>Lock</b>.</span></li>
+    <li><span>While holding both, tap Send. Keep holding until the opener lights flash.</span></li>
+  </ol>
+  <button class="btn" id="pairLightBtn" onclick="pair('light')">Send Light Pairing Signal</button>
+</section>
+
+<section class="sheet" id="sheet-sync">
+  <div class="grab"></div>
+  <div class="sheet-h"><button onclick="closeAll()">Cancel</button><b>Rolling Code</b><button onclick="submitSync()" style="font-weight:600">Save</button></div>
+  <div class="group-h" style="margin-top:12px">Counter</div>
+  <div class="field"><input id="syncInput" type="number" inputmode="numeric" min="1" placeholder="1200"></div>
+  <div class="group-f">If the opener stopped responding, jump the counter forward (e.g. +100). The opener accepts codes within about 256 steps ahead.</div>
+</section>
+
+<section class="sheet" id="sheet-rename">
+  <div class="grab"></div>
+  <div class="sheet-h"><button onclick="closeAll()">Cancel</button><b id="renameTitle">Rename Sensor</b><button onclick="submitRename()" style="font-weight:600">Save</button></div>
+  <div class="group-h" style="margin-top:12px">Name</div>
+  <div class="field"><input id="renameInput" type="text" maxlength="32" autocomplete="off" style="font-family:var(--font)"></div>
+  <div class="group-f" id="renameNote">Shown in the app and the activity log.</div>
+</section>
+
+<div class="asheet" id="asheet">
+  <div class="grp">
+    <div class="msg"><b id="asTitle"></b><span id="asMsg"></span></div>
+    <button id="asOk" class="red">Confirm</button>
+    <button id="asOk2" style="display:none"></button>
   </div>
+  <button class="cancel" onclick="closeAll()">Cancel</button>
+</div>
 
-  <script>
-    let isTransmitting = false;
-    let currentDoorState = "CLOSED";
-    let currentPercent = 0;
-    let soundEnabled = true;
-    let audioCtx = null;
+<div class="toast" id="toast"><svg class="i" id="toastIc"><use href="#i-check"/></svg><span id="toastText"></span></div>
 
-    // Set Today Date Label on Activity Card
-    const todayStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    document.getElementById("timelineTodayLabel").textContent = `Today • ${todayStr}`;
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const cache = new Map();
+/** Write only when changed: keeps reflows near zero while streaming updates. */
+function put(id, prop, value) {
+  const k = id + "." + prop;
+  if (cache.get(k) === value) return;
+  cache.set(k, value);
+  const el = $(id);
+  if (prop === "text") el.textContent = value;
+  else if (prop === "class") el.className = value;
+  else if (prop.startsWith("style.")) el.style[prop.slice(6)] = value;
+  else el.setAttribute(prop, value);
+}
+const cap = s => s ? s[0].toUpperCase() + s.slice(1).toLowerCase() : "";
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const ago = iso => {
+  const s = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000));
+  return s < 60 ? "Just now" : s < 3600 ? `${Math.floor(s / 60)} min ago` : s < 86400 ? `${Math.floor(s / 3600)} h ago` : new Date(iso).toLocaleDateString();
+};
+const mmss = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
 
-    // WEB AUDIO API FEEDBACK
-    function playClickSound(freq = 600, duration = 0.04) {
-      if (!soundEnabled) return;
-      try {
-        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        if (audioCtx.state === 'suspended') audioCtx.resume();
-        const osc = audioCtx.createOscillator();
-        const gain = audioCtx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
-        osc.frequency.exponentialRampToValueAtTime(120, audioCtx.currentTime + duration);
-        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
-        gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + duration);
-        osc.connect(gain);
-        gain.connect(audioCtx.destination);
-        osc.start();
-        osc.stop(audioCtx.currentTime + duration);
-      } catch (e) {}
-    }
+let S = null;               // last status
+let lightDeadline = 0;      // ms epoch for courtesy light auto-off
+let busy = false;
 
-    function toggleSound() {
-      soundEnabled = !soundEnabled;
-      localStorage.setItem("gdo_sound", soundEnabled ? "1" : "0");
-      document.getElementById("soundIcon").textContent = soundEnabled ? "🔊" : "🔇";
-      if (soundEnabled) playClickSound(800, 0.06);
-    }
+// ── Theme ────────────────────────────────────────────
+function setTheme(v) {
+  if (v === "system") { document.documentElement.removeAttribute("data-theme"); localStorage.removeItem("halo-theme"); }
+  else { document.documentElement.setAttribute("data-theme", v); localStorage.setItem("halo-theme", v); }
+  document.querySelectorAll("#themeSeg button").forEach(b => b.classList.toggle("sel", b.dataset.v === v));
+}
+$("themeSeg").onclick = e => e.target.dataset.v && setTheme(e.target.dataset.v);
+setTheme(localStorage.getItem("halo-theme") || "system");
 
-    function initSound() {
-      soundEnabled = localStorage.getItem("gdo_sound") !== "0";
-      document.getElementById("soundIcon").textContent = soundEnabled ? "🔊" : "🔇";
-    }
+// ── Navigation ───────────────────────────────────────
+function go(tab, anchor) {
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === "view-" + tab));
+  document.querySelectorAll("#tabbar button").forEach(b => b.classList.toggle("sel", b.dataset.tab === tab));
+  $("navTitle").textContent = $("view-" + tab).dataset.title;
+  if (anchor) $(anchor).scrollIntoView({ behavior: "smooth", block: "start" });
+  else window.scrollTo(0, 0);
+  history.replaceState(null, "", "#" + tab);
+}
+$("tabbar").onclick = e => { const b = e.target.closest("button"); if (b) go(b.dataset.tab); };
+addEventListener("scroll", () => $("navbar").classList.toggle("scrolled", scrollY > 38), { passive: true });
+if (["activity", "device"].includes(location.hash.slice(1))) go(location.hash.slice(1));
 
-    // THEME HANDLING
-    function initTheme() {
-      setTheme(localStorage.getItem("gdo_theme") || "dark");
-    }
+// ── Sheets / toast ───────────────────────────────────
+function openSheet(name) { $("dim").classList.add("show"); $("sheet-" + name).classList.add("show");
+  if (name === "sync" && S) { $("syncInput").value = S.rolling_code + 100; setTimeout(() => $("syncInput").focus(), 350); } }
+function closeAll() { document.querySelectorAll(".sheet.show,.asheet.show,.dim.show").forEach(e => e.classList.remove("show")); }
+function confirmAction(title, msg, label, fn, label2, fn2, red = true) {
+  $("asTitle").textContent = title; $("asMsg").textContent = msg; $("asOk").textContent = label;
+  $("asOk").className = red ? "red" : "";
+  $("asOk").onclick = () => { closeAll(); fn(); };
+  $("asOk2").style.display = label2 ? "block" : "none";
+  if (label2) { $("asOk2").textContent = label2; $("asOk2").onclick = () => { closeAll(); fn2(); }; }
+  $("dim").classList.add("show"); $("asheet").classList.add("show");
+}
+let toastT;
+function toast(text, ok = true) {
+  $("toastText").textContent = text;
+  $("toastIc").innerHTML = `<use href="#i-${ok ? "check" : "alert"}"/>`;
+  $("toastIc").style.color = ok ? "var(--green)" : "var(--red)";
+  $("toast").classList.add("show");
+  clearTimeout(toastT); toastT = setTimeout(() => $("toast").classList.remove("show"), 2600);
+}
+addEventListener("keydown", e => e.key === "Escape" && closeAll());
 
-    function toggleTheme() {
-      playClickSound(500, 0.05);
-      const cur = document.documentElement.getAttribute("data-theme") || "dark";
-      setTheme(cur === "dark" ? "light" : "dark");
-    }
+// ── API ──────────────────────────────────────────────
+// Short timeouts: on the LAN Halo answers in milliseconds, so a slow request means
+// the network is down. Fail fast instead of hanging the UI.
+const withTimeout = ms => (window.AbortSignal && AbortSignal.timeout) ? AbortSignal.timeout(ms) : undefined;
+async function api(path, body = {}) {
+  let res;
+  try {
+    res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body), signal: withTimeout(8000) });
+  } catch (e) { throw new Error(e.name === "TimeoutError" ? "Halo didn't respond. Check your Wi-Fi." : "Can't reach Halo"); }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || data.success === false) throw new Error(data.error || `HTTP ${res.status}`);
+  return data;
+}
+async function act(fn, okMsg) {
+  if (busy) return; busy = true;
+  try { const r = await fn(); if (okMsg) toast(typeof okMsg === "function" ? okMsg(r) : okMsg); if (!live) poll(); }
+  catch (e) { toast(e.message, false); }
+  finally { busy = false; }
+}
+const toggleDoor = () => {
+  const opening = S && (S.door.state === "OPEN" || S.door.state === "OPENING");
+  act(() => api(opening ? "/api/close" : "/api/open", { source: "Halo app" }));
+};
+const toggleLight = () => act(() => api("/api/light", { source: "Halo app" }), "Light toggled");
+const toggleLock = () => act(() => api("/api/lock", { locked: !(S && S.security.remote_lock) }),
+  r => r.locked ? "Remote lock on" : "Remote lock off");
+function pair(kind) {
+  const btn = $(kind === "door" ? "pairDoorBtn" : "pairLightBtn"); const label = btn.textContent;
+  btn.disabled = true; btn.textContent = "Transmitting…";
+  act(() => api(kind === "door" ? "/api/pair" : "/api/pair-light"), "Pairing signal sent")
+    .finally(() => { btn.disabled = false; btn.textContent = label; closeAll(); });
+}
+function submitSync() {
+  const v = parseInt($("syncInput").value, 10);
+  if (!(v > 0)) return toast("Enter a positive number", false);
+  closeAll(); act(() => api("/api/set-counter", { counter: v }), `Rolling code set to ${v}`);
+}
+const testRf = () => { toast("Transmitting test bursts…"); act(() => api("/api/test-rf", { duration: 3 }), r => r.message); };
+const setCar = present => act(() => api("/api/car", { present }), present ? "Car marked as in the garage" : "Car marked as away");
+function carSheet() {
+  const c = S && S.car ? S.car : { state: "unknown" };
+  confirmAction("Where is the car?", c.reason || "Correct Halo if its estimate is wrong.",
+    "In the Garage", () => setCar(true), "Away", () => setCar(false), false);
+}
+let renaming = null;
+function renameSensor(which) {
+  if (!S) return;
+  renaming = which;
+  const info = which === "door" ? S.sensor : S.motion;
+  $("renameTitle").textContent = which === "door" ? "Door Sensor" : "Motion Sensor";
+  $("renameNote").textContent = `Sensor ID ${info.mac || "not seen yet"}. The name is shown in the app and the activity log.`;
+  $("renameInput").value = info.name || "";
+  $("dim").classList.add("show"); $("sheet-rename").classList.add("show");
+  setTimeout(() => { $("renameInput").focus(); $("renameInput").select(); }, 350);
+}
+function submitRename() {
+  const name = $("renameInput").value.trim();
+  if (!name) return toast("Enter a name", false);
+  closeAll();
+  act(() => api("/api/sensor-name", { sensor: renaming, name }), `Renamed to ${name}`);
+}
+$("renameInput").addEventListener("keydown", e => e.key === "Enter" && submitRename());
+function setNotify(changes) {
+  act(() => api("/api/notifications", { ...changes, app_url: location.origin }),
+    r => changes.enabled === true ? "Door alerts on. Subscribe in ntfy to receive them."
+       : changes.enabled === false ? "Door alerts off" : "Saved");
+}
+$("nLeftSeg").onclick = e => e.target.dataset.v && setNotify({ left_open_minutes: +e.target.dataset.v });
+const testNotify = () => act(() => api("/api/notifications/test", { app_url: location.origin }),
+  "Test sent. Check the ntfy app.");
+function copyTopic() {
+  const t = S && S.notifications && S.notifications.topic;
+  if (!t) return;
+  const ta = document.createElement("textarea");
+  ta.value = t; ta.setAttribute("readonly", ""); ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, t.length);
+  let ok = false; try { ok = document.execCommand("copy"); } catch (e) {}
+  ta.remove();
+  toast(ok ? "Topic copied. Paste it in ntfy → Subscribe." : "Topic: " + t);
+}
+const confirmReset = () => confirmAction("Generate a new remote ID?",
+  "The opener will stop responding until you pair Halo again.", "Generate New ID",
+  () => act(() => api("/api/reset-remote", { start_counter: 1000 }), "New remote ID. Pair it now."));
 
-    function setTheme(theme) {
-      document.documentElement.setAttribute("data-theme", theme);
-      localStorage.setItem("gdo_theme", theme);
-      document.getElementById("moonIcon").style.display = theme === "light" ? "none" : "block";
-      document.getElementById("sunIcon").style.display = theme === "light" ? "block" : "none";
-    }
+// ── Rendering ────────────────────────────────────────
+const EVENT_STYLE = {
+  Door: ["i-garage", "var(--indigo)"], Light: ["i-bulb", "var(--yellow)", "#000"], Sensor: ["i-sensor", "var(--green)"],
+  "Remote Lock": ["i-lock", "var(--blue)"], "Pair Door": ["i-link", "var(--indigo)"], "Pair Light": ["i-link", "var(--yellow)", "#000"],
+  "RF Test": ["i-wave", "var(--orange)"], "Rolling Code": ["i-sync", "var(--blue)"], "Remote ID": ["i-key", "var(--red)"],
+  Halo: ["i-halo", "var(--gray)"], Notifications: ["i-bell", "var(--red)"], Car: ["i-car", "var(--teal)"],
+};
+function eventRow(l) {
+  const [ic, bg, fg = "#fff"] = EVENT_STYLE[l.action] || ["i-halo", "var(--gray)"];
+  const color = l.success === false ? "var(--red)" : bg;
+  const time = (l.timestamp || "").split(" ")[1]?.slice(0, 5) || "";
+  return `<div class="row ev"><span class="sq" style="background:${color};color:${l.success === false ? "#fff" : fg}"><svg class="i"><use href="#${l.success === false ? "i-alert" : ic}"/></svg></span>
+    <span class="lbl">${esc(l.action)}<small>${esc(l.details)}</small></span><span class="time">${time}</span></div>`;
+}
+let logKey = "";
+function render(d) {
+  S = d;
+  const door = d.door, st = door.state, pct = door.percent, moving = st === "OPENING" || st === "CLOSING";
+  const locked = d.security.remote_lock, hw = d.hardware, sen = d.sensor || {};
 
-    initTheme();
-    initSound();
+  // Door hero
+  put("doorState", "text", cap(st));
+  put("doorSub", "text", moving ? `Garage Door · ${pct}%` : pct > 0 && pct < 100 ? `Garage Door · ${pct}% open` : "Garage Door");
+  put("hero", "class", "hero" + (moving ? " moving" : ""));
+  put("doorBadge", "text", locked ? "Locked" : moving ? "Moving" : st === "OPEN" ? "Open" : "Secure");
+  put("doorBadge", "class", "badge " + (locked ? "red" : moving ? "orange" : st === "OPEN" ? "orange" : "green"));
+  put("slats", "style.transform", `translateY(${-pct * 1.22}px)`);
+  put("doorBar", "style.width", pct + "%");
+  const opening = st === "OPEN" || st === "OPENING";
+  $("doorBtn").disabled = locked;
+  put("doorBtn", "aria-label", locked ? "Locked" : opening ? "Close" : "Open");
+  $("doorBtn").lastChild.textContent = locked ? "Remote Lock On" : opening ? "Close" : "Open";
 
-    function formatTime(totalSec) {
-      const m = Math.floor(totalSec / 60);
-      const s = totalSec % 60;
-      return `${m}:${s < 10 ? '0' : ''}${s}`;
-    }
+  // Light
+  const lightOn = d.light.on;
+  lightDeadline = lightOn && d.light.auto_off_remaining_sec ? Date.now() + d.light.auto_off_remaining_sec * 1000 : 0;
+  put("tileLight", "class", "tile amber" + (lightOn ? " on" : ""));
+  put("glow", "opacity", lightOn ? ".7" : "0");
+  put("bulb", "fill", lightOn ? "#ffd60a" : "var(--fill2)");
+  tickLight();
 
-    // STATUS POLLING
-    async function fetchStatus() {
-      try {
-        const res = await fetch('/api/status');
-        if (!res.ok) return;
-        const data = await res.json();
-        updateUI(data);
-      } catch (err) {
-        console.warn("Status fetch failed:", err);
-      }
-    }
+  // Lock
+  put("tileLock", "class", "tile blue" + (locked ? " on" : ""));
+  put("lockUse", "href", locked ? "#i-lock" : "#i-unlock");
+  put("lockSub", "text", locked ? "Locked" : "Unlocked");
 
-    function updateUI(data) {
-      const door = data.door || {};
-      currentDoorState = (door.state || "CLOSED").toUpperCase();
-      currentPercent = typeof door.percent === "number" ? door.percent : (currentDoorState === "OPEN" ? 100 : 0);
+  // Sensor
+  const hasSensor = !!sen.connected;
+  const senOpen = sen.state === "open";
+  put("tileSensor", "class", "tile " + (senOpen ? "orange" : "green") + (hasSensor ? " on" : ""));
+  put("sensorSub", "text", hasSensor ? `${cap(sen.state)}${sen.battery != null ? " · " + sen.battery + "%" : ""}` : "No data");
+  put("sName", "text", sen.name || "Door Sensor");
+  put("contactTitle", "text", sen.name || "Contact");
+  put("sMac", "text", sen.mac || "—");
+  put("sState", "text", hasSensor ? cap(sen.state) : "Waiting for report");
+  put("sState", "class", "val " + (hasSensor ? (senOpen ? "warn" : "ok") : ""));
+  put("sBatt", "text", sen.battery != null ? sen.battery + "%" : "—");
+  put("sBatt", "class", "val " + (sen.battery != null && sen.battery < 20 ? "bad" : ""));
+  put("sRssi", "text", sen.signal_strength != null ? sen.signal_strength + " dBm" : "—");
+  put("sSeen", "text", sen.last_seen || "Never");
 
-      const stateEl = document.getElementById("doorState");
-      const controlSub = document.getElementById("doorControlSub");
-      const sliderPct = document.getElementById("sliderPctLabel");
-      const rangeFill = document.getElementById("rangeFill");
-      const slatsGroup = document.getElementById("slatsGroup");
-      const slatHighlight = document.getElementById("slatHighlight");
-      const btnUp = document.getElementById("btnCoverUp");
-      const btnDown = document.getElementById("btnCoverDown");
-      const footerLabel = document.getElementById("doorPrimaryFooterLabel");
+  // Radio
+  const sim = hw.is_simulation;
+  put("dRadio", "text", sim ? "Simulation (no CC1101)" : "TI CC1101 · SPI0");
+  put("dRadio", "class", "val " + (sim ? "warn" : "ok"));
+  put("dChip", "text", `${hw.part_number} / ${hw.version}`);
+  put("dMarc", "text", hw.state);
 
-      const prettyState = currentDoorState.charAt(0) + currentDoorState.slice(1).toLowerCase();
-      stateEl.textContent = prettyState;
-      controlSub.textContent = `${prettyState} • ${currentPercent}%`;
-      sliderPct.textContent = `${currentPercent}%`;
-      rangeFill.style.width = `${currentPercent}%`;
+  // Car + motion
+  const car = d.car || { state: "unknown" }, mo = d.motion || {};
+  const carTxt = { present: "In garage", away: "Away", unknown: "Unknown" }[car.state] || "Unknown";
+  const hasMotion = !!mo.connected;
+  put("tileCar", "class", "tile blue" + (car.state === "present" ? " on" : ""));
+  put("carSub", "text", !hasMotion && car.state === "unknown" ? "No sensor" : carTxt + (mo.active ? " · Motion" : ""));
+  put("cState", "text", carTxt + (car.source === "estimate" ? " (estimated)" : ""));
+  put("mName", "text", mo.name || "Motion Sensor");
+  put("mMac", "text", mo.mac || "—");
+  put("mState", "text", hasMotion ? (mo.active ? "Detected" : "Clear") : "Waiting for report");
+  put("mState", "class", "val " + (mo.active ? "warn" : hasMotion ? "ok" : ""));
+  put("mLast", "text", mo.last_motion ? ago(mo.last_motion) : "Never");
+  put("mBatt", "text", mo.battery != null ? mo.battery + "%" : "—");
+  put("mBatt", "class", "val " + (mo.battery != null && mo.battery < 20 ? "bad" : ""));
+  put("mRssi", "text", mo.signal_strength != null ? mo.signal_strength + " dBm" : "—");
 
-      // Cover arrow enable/disable states
-      btnUp.classList.toggle("disabled", currentPercent >= 100 && currentDoorState === "OPEN");
-      btnDown.classList.toggle("disabled", currentPercent <= 0 && currentDoorState === "CLOSED");
+  // Door alerts
+  const n = d.notifications || {};
+  $("nEnabled").checked = !!n.enabled;
+  $("nOpen").checked = n.on_open !== false;
+  $("nClose").checked = n.on_close !== false;
+  $("nEnabled").closest(".list").classList.toggle("notify-on", !!n.enabled);
+  document.querySelectorAll("#nLeftSeg button").forEach(b => b.classList.toggle("sel", +b.dataset.v === (n.left_open_minutes || 0)));
+  put("nTopic", "text", n.topic || "—");
+  put("nTopicHint", "text", n.server && !/ntfy\.sh$/.test(n.server) ? `Server ${n.server} · tap to copy` : "Tap to copy");
 
-      if (currentDoorState === "OPENING" || currentDoorState === "CLOSING") {
-        stateEl.className = "entity-value warn";
-        slatHighlight.style.fill = "var(--ha-amber)";
-        footerLabel.textContent = "Stop Garage Door";
-      } else {
-        stateEl.className = "entity-value";
-        slatHighlight.style.fill = "var(--ha-blue)";
-        footerLabel.textContent = currentDoorState === "OPEN" ? "Close Garage Door" : "Open Garage Door";
-      }
+  // Remote
+  put("dFixed", "text", d.fixed_code_hex);
+  put("dRolling", "text", d.rolling_code.toLocaleString());
+  put("dProto", "text", d.protocol);
+  put("dFreq", "text", `${Number(d.frequency_mhz).toFixed(2)} MHz`);
+  put("dRepeats", "text", String(d.repeats));
+  put("deviceSub", "text", d.name);
+  put("footer", "text", `${d.protocol} · ${d.frequency_mhz} MHz`);
 
-      // Animate mini schematic slats
-      const translateY = -((currentPercent / 100) * 44);
-      slatsGroup.style.transform = `translate(0, ${translateY}px)`;
+  // Summary + connection
+  put("summary", "text", `Door ${st.toLowerCase()} · ${lightOn ? "Light possibly on" : "Light off"}${car.state === "present" ? " · Car home" : car.state === "away" ? " · Car away" : ""}${locked ? " · Locked" : ""}`);
+  setConn(live ? (sim ? "sim" : "") : "off");
 
-      // 2. Opener Light
-      const lightOn = !!(data.light && data.light.on);
-      const lightSwitch = document.getElementById("lightToggleSwitch");
-      const lightSub = document.getElementById("lightSubtitle");
-      const lightRowIcon = document.getElementById("lightRowIcon");
-      const sensorLightState = document.getElementById("sensorLightState");
-      const lightBeam = document.getElementById("garageLightBeam");
-      const ceilingBulb = document.getElementById("ceilingBulb");
+  // Logs (re-render only when changed)
+  const logs = d.recent_logs || [];
+  const key = logs.length + "|" + (logs[0] ? logs[0].timestamp + logs[0].details : "");
+  if (key !== logKey) {
+    logKey = key;
+    $("recent").innerHTML = logs.slice(0, 4).map(eventRow).join("") || '<div class="empty">No activity yet</div>';
+    $("activity").innerHTML = logs.map(eventRow).join("") || '<div class="empty">No activity yet</div>';
+  }
+}
+function tickLight() {
+  if (!S) return;
+  const rem = lightDeadline ? Math.max(0, Math.round((lightDeadline - Date.now()) / 1000)) : 0;
+  put("lightSub", "text", S.light.on ? (rem ? `Possibly on · ${mmss(rem)}` : "Possibly on") : "Tap to toggle");
+}
+setInterval(() => { if (lightDeadline && !document.hidden) tickLight(); }, 1000);
 
-      lightSwitch.checked = lightOn;
-      if (lightOn) {
-        lightRowIcon.classList.add("active-amber");
-        lightBeam.style.opacity = "0.35";
-        ceilingBulb.style.fill = "#ff9800";
-        const remSec = data.light.auto_off_remaining_sec || 0;
-        lightSub.textContent = remSec > 0 ? `On • Auto-off in ${formatTime(remSec)}` : "On";
-        sensorLightState.textContent = "On";
-        sensorLightState.className = "entity-value warn";
-      } else {
-        lightRowIcon.classList.remove("active-amber");
-        lightBeam.style.opacity = "0";
-        ceilingBulb.style.fill = "var(--text-secondary)";
-        lightSub.textContent = "Off (4.5m auto-off)";
-        sensorLightState.textContent = "Off";
-        sensorLightState.className = "entity-value";
-      }
-
-      // 3. Remote Lock
-      const isLocked = !!(data.security && data.security.remote_lock);
-      document.getElementById("lockToggleSwitch").checked = isLocked;
-      document.getElementById("lockSubtitle").textContent = isLocked ? "Locked (RF Blocked)" : "Unlocked (RF Enabled)";
-      document.getElementById("lockRowIcon").classList.toggle("active-amber", isLocked);
-
-      // 4. Wyze Ground-Truth Sensor
-      const sensor = data.sensor || {};
-      const mac = sensor.mac || "77CB8338";
-      const batt = sensor.battery !== undefined ? sensor.battery : 98;
-      const rssi = sensor.signal_strength !== undefined ? sensor.signal_strength : -32;
-      const sensorSt = (sensor.state || (currentDoorState === "OPEN" ? "open" : "closed")).toUpperCase();
-      const prettySensorSt = sensorSt.charAt(0) + sensorSt.slice(1).toLowerCase();
-
-      document.getElementById("sensorMacDisplay").textContent = mac;
-      document.getElementById("sensorRssiTag").textContent = `${rssi} dBm`;
-      document.getElementById("sensorBattTag").textContent = `${batt}%`;
-      const stateTag = document.getElementById("sensorStateTag");
-      stateTag.textContent = prettySensorSt;
-      stateTag.className = sensorSt === "OPEN" ? "entity-value warn" : "entity-value ok";
-
-      // 5. Sensors & Diagnostics
-      document.getElementById("telemObstruction").textContent = door.obstruction || "Clear";
-      document.getElementById("telemMotor").textContent = door.motor || "Idle";
-      document.getElementById("telemWall").textContent = door.wall_button || "Ready";
-      document.getElementById("telemCycles").textContent = data.rolling_code ? data.rolling_code.toLocaleString() : "----";
-      document.getElementById("telemSynced").textContent = "Synced";
-
-      // 6. Hardware Metadata
-      const hw = data.hardware || {};
-      document.getElementById("hwRadioLabel").textContent = hw.is_simulation ? "Mock Radio (Simulation)" : "TI CC1101 (SPI0 CE0)";
-      document.getElementById("hwFreqText").textContent = `${data.frequency_mhz || 315.0} MHz`;
-      document.getElementById("hwVersionText").textContent = hw.version || "0x14";
-      document.getElementById("hwStatePill").textContent = (hw.state || "IDLE").replace(/^0x[0-9a-fA-F]+\s*\(|\)$/g, '');
-      document.getElementById("hwFixed").textContent = data.fixed_code_hex || "----";
-      document.getElementById("hwRepeatsText").textContent = `${data.repeats || 8} bursts`;
-
-      // 7. Activity Timeline (Matches ESPHome Activity Log)
-      const logs = data.recent_logs || [];
-      const timeline = document.getElementById("activityTimeline");
-      if (logs.length > 0) {
-        timeline.innerHTML = logs.slice(0, 8).map(l => {
-          const timePart = (l.timestamp || "").split(" ")[1] || l.timestamp || "";
-          return `
-            <div class="timeline-item">
-              <div class="timeline-rail">
-                <div class="timeline-dot ${l.success === false ? 'err' : ''}"></div>
-                <div class="timeline-line"></div>
-              </div>
-              <div class="timeline-content">
-                <div class="timeline-main">
-                  <span class="timeline-action">${l.action || 'Event'}</span>
-                  <span class="timeline-time">${timePart}</span>
-                </div>
-                <div class="timeline-detail" title="${l.details || ''}">${l.details || ''}</div>
-              </div>
-            </div>
-          `;
-        }).join('');
-      }
-    }
-
-    // TOGGLE DOOR
-    async function toggleDoor() {
-      if (isTransmitting) return;
-      playClickSound(700, 0.08);
-      const btn = document.getElementById("doorActionBtn");
-      btn.disabled = true;
-      isTransmitting = true;
-
-      try {
-        await fetch('/api/toggle', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repeats: 8 })
-        });
-        await fetchStatus();
-      } catch (err) {
-        alert("Failed to toggle garage door: " + err.message);
-      } finally {
-        btn.disabled = false;
-        isTransmitting = false;
-      }
-    }
-
-    // PRESET DOOR POSITIONS
-    async function sendPreset(pct) {
-      playClickSound(650, 0.06);
-      try {
-        await fetch('/api/toggle', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repeats: 8, target_percent: pct })
-        });
-        await fetchStatus();
-      } catch (err) {
-        alert("Preset failed: " + err.message);
-      }
-    }
-
-    // TOGGLE LIGHT SWITCH
-    async function toggleLightSwitch(targetChecked) {
-      playClickSound(targetChecked ? 900 : 400, 0.05);
-      try {
-        await fetch('/api/light', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repeats: 8 })
-        });
-        await fetchStatus();
-      } catch (err) {
-        alert("Failed to toggle opener light: " + err.message);
-        await fetchStatus();
-      }
-    }
-
-    // TOGGLE REMOTE LOCK SWITCH
-    async function toggleLockSwitch(targetChecked) {
-      playClickSound(targetChecked ? 450 : 850, 0.05);
-      try {
-        await fetch('/api/lock', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ locked: targetChecked })
-        });
-        await fetchStatus();
-      } catch (err) {
-        alert("Failed to toggle remote lock: " + err.message);
-        await fetchStatus();
-      }
-    }
-
-    // MODALS
-    function openPairModal() { playClickSound(); document.getElementById('pairModal').classList.add('active'); }
-    function closePairModal() { playClickSound(); document.getElementById('pairModal').classList.remove('active'); }
-
-    async function sendPair() {
-      playClickSound(800, 0.1);
-      const btn = document.getElementById('sendPairBtn');
-      btn.textContent = 'Transmitting...';
-      btn.disabled = true;
-      try {
-        await fetch('/api/pair', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repeats: 16 })
-        });
-        closePairModal();
-        await fetchStatus();
-      } catch (err) {
-        alert('Pairing request failed: ' + err.message);
-      } finally {
-        btn.textContent = 'Send Pairing Signal';
-        btn.disabled = false;
-      }
-    }
-
-    function openPairLightModal() { playClickSound(); document.getElementById('pairLightModal').classList.add('active'); }
-    function closePairLightModal() { playClickSound(); document.getElementById('pairLightModal').classList.remove('active'); }
-
-    async function sendPairLight() {
-      playClickSound(800, 0.1);
-      const btn = document.getElementById('sendPairLightBtn');
-      btn.textContent = 'Transmitting...';
-      btn.disabled = true;
-      try {
-        await fetch('/api/pair-light', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repeats: 24 })
-        });
-        closePairLightModal();
-        await fetchStatus();
-      } catch (err) {
-        alert('Light pairing failed: ' + err.message);
-      } finally {
-        btn.textContent = 'Send Light Pairing Signal';
-        btn.disabled = false;
-      }
-    }
-
-    function openSyncModal() { playClickSound(); document.getElementById('syncModal').classList.add('active'); }
-    function closeSyncModal() { playClickSound(); document.getElementById('syncModal').classList.remove('active'); }
-
-    async function submitSync() {
-      playClickSound();
-      const val = parseInt(document.getElementById('syncInput').value, 10);
-      if (isNaN(val) || val <= 0) {
-        alert("Enter a valid integer counter");
-        return;
-      }
-      try {
-        await fetch('/api/set-counter', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ counter: val })
-        });
-        closeSyncModal();
-        await fetchStatus();
-      } catch (err) {
-        alert("Sync failed: " + err.message);
-      }
-    }
-
-    async function resetRemoteId() {
-      if (!confirm("Generate a new Fixed Remote ID? You will need to re-pair with the opener.")) return;
-      try {
-        await fetch('/api/reset-remote', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ start_counter: 1000 })
-        });
-        await fetchStatus();
-        alert("Generated new Remote ID! Now pair it with your opener.");
-      } catch (err) {
-        alert("Reset failed: " + err.message);
-      }
-    }
-
-    async function testRf() {
-      try {
-        const res = await fetch('/api/test-rf', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ duration: 3.0 })
-        });
-        const result = await res.json();
-        alert(result.message || "Test completed!");
-        await fetchStatus();
-      } catch (err) {
-        alert("Test failed: " + err.message);
-      }
-    }
-
-    fetchStatus();
-    setInterval(fetchStatus, 1200);
-  </script>
+// ── Live connection: SSE with polling fallback ───────
+let live = false, es = null, pollT = null;
+function setConn(mode) {
+  put("conn", "class", "conn " + mode);
+  put("connText", "text", mode === "off" ? "Offline" : mode === "sim" ? "Simulation" : "Live");
+}
+async function poll() {
+  try { const r = await fetch("/api/status", { cache: "no-store", signal: withTimeout(3000) }); if (r.ok) render(await r.json()); }
+  catch { setConn("off"); }
+}
+function connect() {
+  if (es || document.hidden) return;
+  if (!window.EventSource) { poll(); pollT = setInterval(poll, 3000); return; }
+  es = new EventSource("/api/events");
+  es.onmessage = e => { live = true; clearInterval(pollT); pollT = null; render(JSON.parse(e.data)); };
+  es.onerror = () => {
+    live = false; setConn("off");
+    if (!pollT) pollT = setInterval(poll, 2000);   // EventSource keeps retrying in the background
+  };
+}
+// Wi-Fi came back (or the phone woke up): reconnect now instead of waiting for a retry.
+addEventListener("online", () => { disconnect(); connect(); });
+function disconnect() { if (es) { es.close(); es = null; } clearInterval(pollT); pollT = null; live = false; }
+document.addEventListener("visibilitychange", () => document.hidden ? disconnect() : connect());
+poll().then(connect);
+</script>
 </body>
 </html>

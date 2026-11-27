@@ -1,10 +1,11 @@
 {
   "name": "homebridge-chamberlain-cc1101",
-  "version": "1.0.0",
-  "description": "Homebridge plugin for Chamberlain Security+ 1.0 Garage Door Opener using Raspberry Pi & CC1101 transceiver",
+  "version": "2.0.0",
+  "description": "Halo smart garage for Homebridge: Chamberlain Security+ 1.0 door & light via Raspberry Pi and CC1101",
   "license": "MIT",
   "keywords": [
     "homebridge-plugin",
+    "halo",
     "chamberlain",
     "liftmaster",
     "security-plus",

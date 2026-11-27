@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Garage Door Opener - Raspberry Pi 3B+ & CC1101 Transceiver
+Halo — smart garage CLI (Raspberry Pi 3B+ & CC1101 transceiver)
 Chamberlain / LiftMaster Security+ 1.0 (Purple Learn Button, 315.00 MHz) Emulation CLI.
 
 TX Modes:
@@ -26,7 +26,7 @@ from security_plus import generate_burst_bytes, generate_burst_bits
 from remote_manager import RemoteManager
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("GarageDoor")
+logger = logging.getLogger("Halo")
 
 
 def get_radio_fifo(bus: int = 0, device: int = 0) -> CC1101:
@@ -51,7 +51,7 @@ def cmd_status(args):
     rolling, fixed = manager.peek_codes()
 
     print("=" * 60)
-    print(" Garage Door Opener: Security+ 1.0 (Purple Button 315MHz)")
+    print(" Halo - Security+ 1.0 (Purple Button 315MHz)")
     print("=" * 60)
     print(f"Remote Name       : {manager.config.get('name')}")
     print(f"Carrier Frequency : {manager.config.get('frequency_mhz')} MHz")
@@ -349,7 +349,7 @@ def cmd_web(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Chamberlain Security+ 1.0 (Purple 315MHz) Garage Door Opener — Raspberry Pi & CC1101"
+        description="Halo smart garage — Chamberlain Security+ 1.0 (Purple 315MHz) via Raspberry Pi & CC1101"
     )
     parser.add_argument("--config", default="remote_config.json")
     parser.add_argument("--spi-bus", type=int, default=0)
@@ -398,7 +398,7 @@ def main():
     sub_test = subparsers.add_parser("test-rf", help="Transmit RF test bursts")
     sub_test.add_argument("-d", "--duration", type=float, default=5.0)
 
-    sub_web = subparsers.add_parser("web", help="Start Web UI dashboard")
+    sub_web = subparsers.add_parser("web", help="Start the Halo web app & REST API")
     sub_web.add_argument("--host", default="0.0.0.0")
     sub_web.add_argument("-p", "--port", type=int, default=8080)
 

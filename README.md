@@ -1,122 +1,103 @@
-# Smart Garage Door Opener (Chamberlain Security+ 1.0 • 315 MHz)
+<p align="center"><img src="web/icon-192.png" width="96" alt="Halo"></p>
 
-Transform a **Raspberry Pi 3B+** and a **TI CC1101 Sub-1GHz RF transceiver** into a fully featured, ground-truth-aware smart garage door system with native **Apple HomeKit / Siri** integration, physical **Wyze Sense v2** contact sensing, and a modern **Konnected GDO blaQ-inspired Web Dashboard**.
-
-Specifically engineered for Chamberlain, LiftMaster, and Craftsman garage door openers equipped with the **Purple "Learn" Button** (315.00 MHz, Security+ 1.0 rolling code protocol).
+<h1 align="center">Halo</h1>
+<p align="center"><b>Smart home automation for the garage.</b><br>
+A Raspberry Pi + CC1101 that becomes a real Chamberlain Security+ 1.0 remote, with an iOS-style app, Apple Home and a Wyze contact sensor for ground truth.</p>
 
 ---
+
+Halo drives Chamberlain, LiftMaster and Craftsman openers with the **purple Learn button** (315 MHz, Security+ 1.0 rolling code). No relay wired into the opener: Halo pairs as a new remote, the same way a handheld one does.
 
 ## Highlights
 
-* **Genuine Virtual Remote (Security+ 1.0)**: Generates valid rolling codes and 40-symbol ternary frames at 315.00 MHz directly using CC1101 hardware SPI FIFO buffers (zero Linux OS timing jitter).
-* **Opener Courtesy Light Control**: Emulates physical remote Button 1 to toggle the ceiling opener work lights independently, complete with a 4.5-minute auto-off timer mirroring Chamberlain factory behavior.
-* **Ground-Truth Contact Sensing**: Integrates physical **Wyze Sense v2 Contact Sensors** via a Wyze v1 USB bridge (`WHSB1`) and MQTT for verified open/closed door states, battery percentage, and signal strength.
-* **Apple HomeKit Native Bridge**: Custom Homebridge plugin (`homebridge-chamberlain-cc1101`) exposing the garage door and opener light with instant status reflection and Siri voice support.
-* **Modern Web Dashboard & PWA**: Responsive Konnected GDO blaQ-style web interface featuring architectural animated door slats, volumetric overhead light beams, auto-off countdowns, tactile audio feedback, and dark/light modes.
-* **Zero-Drop Hardware Resiliency**: Persistent Linux udev rules for plug-and-play Wyze USB bridge auto-reconnection and automated systemd background services.
+* **Real virtual remote.** Generates valid Security+ 1.0 rolling codes and transmits them from the CC1101's hardware FIFO, so Linux scheduling jitter never touches the waveform.
+* **The Halo app.** An iOS-style web app you add to your Home Screen: a live door view, Apple Home–style accessory tiles, an activity feed and a full device admin page (pairing, rolling-code resync, RF test, new remote ID). It follows the system light/dark setting and becomes an iPad-style sidebar layout on wide screens.
+* **Live, not polled.** The server pushes state over Server-Sent Events only when something changes. The app is idle while nothing happens and disconnects when it is in the background.
+* **Courtesy light.** One tap presses the opener's light button (remote button 1). Halo can't see the light, so it shows **Possibly on**, with Chamberlain's 4.5-minute auto-off as a countdown.
+* **Door alerts.** Notifications when the garage door opens, closes or is left open, with a Close button. No Apple home hub needed.
+* **Local-first.** Door, light, sensor and HomeKit all run on your LAN. Losing the internet or Tailscale never stops the garage, and Halo reconnects within seconds when the network blips.
+* **Ground-truth sensing.** A Wyze Sense v2 contact sensor over MQTT (or any integration that POSTs to `/api/sensor`) overrides the simulated door position.
+* **Is the car home?** An optional Wyze motion sensor in the bay lets Halo estimate whether the car is in the garage, and you can correct it with a tap.
+* **Remote lock.** While it is on, every door command is refused, including from HomeKit.
+* **Apple Home & Siri.** Bundled Homebridge plugin exposes the door and the light.
 
----
-
-## System Architecture
+## Architecture
 
 ```mermaid
 flowchart TD
-    subgraph UI ["User Interfaces"]
-        iOS["Apple Home / Siri (iPhone, Watch, CarPlay)"]
-        Web["Web Dashboard / PWA (Browser, Mobile)"]
+    subgraph UI ["Clients"]
+        App["Halo app (Safari / Home Screen)"]
+        iOS["Apple Home / Siri"]
         CLI["garage_door.py CLI"]
     end
 
-    subgraph Hub ["Raspberry Pi 3B+ (garagemodule)"]
-        HB["Homebridge Docker\n(homebridge-chamberlain-cc1101)"]
-        GDO["Garage Door Backend\n(web_server.py / port 8080)"]
-        MQTT["Mosquitto MQTT Broker\n(127.0.0.1:1883)"]
-        W2M["wyzesense2mqtt Docker\n(raetha/wyzesense2mqtt)"]
-        SPI["SPI Bus 0 CE0\n(/dev/spidev0.0)"]
-        USB["Wyze USB Bridge\n(/dev/wyzesense)"]
-        CC["TI CC1101 Transceiver\n(315.00 MHz)"]
+    subgraph Pi ["Raspberry Pi 3B+"]
+        Halo["Halo server<br/>web_server.py :8080"]
+        HB["Homebridge<br/>homebridge-chamberlain-cc1101"]
+        MQTT["Mosquitto :1883"]
+        W2M["wyzesense2mqtt"]
+        CC["TI CC1101 on SPI0<br/>315.00 MHz"]
     end
 
-    subgraph Hardware ["Physical Hardware"]
-        Opener["Chamberlain Ceiling Opener\n(Purple Learn Button • 315MHz)"]
-        Sensor["Wyze Sense v2 Sensor\n(Door Magnet • MAC 77CB8338)"]
-    end
+    Opener["Chamberlain opener<br/>(purple Learn button)"]
+    Sensor["Wyze Sense v2 contact sensor"]
 
-    iOS <-->|HAP Protocol| HB
-    HB <-->|HTTP REST & State File| GDO
-    Web <-->|REST API / SSE| GDO
-    CLI --> GDO
-
-    GDO -->|SPI FIFO TX| SPI --> CC
-    CC -->|315MHz Security+ 1.0 RF| Opener
-
-    Sensor -->|915MHz RF| USB --> W2M
-    W2M -->|wyzesense2mqtt/77CB8338| MQTT
-    MQTT -->|Subscribed Listener| GDO
+    App <-->|REST + SSE /api/events| Halo
+    iOS <-->|HAP| HB
+    HB <-->|REST + garage_state.json| Halo
+    CLI --> CC
+    Halo -->|SPI FIFO| CC -->|Security+ 1.0 RF| Opener
+    Sensor -->|RF| W2M -->|MQTT| MQTT --> Halo
 ```
 
 ---
 
-## Hardware Requirements & Pinout
+## Hardware
 
-### Required Components
-1. **Raspberry Pi 3B+** (or any 40-pin Raspberry Pi running Raspberry Pi OS).
-2. **TI CC1101 Sub-1GHz Transceiver Module** with 315 MHz tuned antenna.
-3. **Wyze Sense v1 USB Bridge (Model WHSB1)** + **Wyze Sense v2 Contact Sensor**.
-4. **6x Female-to-Female Jumper Wires**.
+1. **Raspberry Pi 3B+** (or any 40-pin Pi running Raspberry Pi OS).
+2. **TI CC1101** sub-1 GHz module with a 315 MHz antenna.
+3. *(Optional)* **Wyze Sense v1 USB bridge (WHSB1)** + **Wyze Sense v2 contact sensor**.
+4. 6 female-to-female jumper wires.
 
 > [!CAUTION]
-> **3.3V Power Only:** The CC1101 is strictly a **3.3V** device. Connecting VCC to a 5V pin will permanently destroy the transceiver.
+> **3.3 V only.** Connecting the CC1101's VCC to 5 V destroys it.
 
-### CC1101 to Raspberry Pi 3B+ Wiring Table
-
-| CC1101 Pin | Raspberry Pi Function | Physical Header Pin | Notes |
+| CC1101 | Raspberry Pi | Header pin | Notes |
 | :--- | :--- | :--- | :--- |
-| **VCC / VDD** | **3.3V Power** | **Pin 1** (or 17) | **3.3V ONLY** |
-| **GND** | **Ground** | **Pin 6** (or 9, 14, 20, 25) | System ground |
-| **CSN / CS** | **GPIO 8 (SPI0 CE0)** | **Pin 24** | SPI Chip Select 0 |
-| **SCK / SCLK**| **GPIO 11 (SPI0 SCLK)**| **Pin 23** | SPI Bus Clock |
-| **MOSI / SI** | **GPIO 10 (SPI0 MOSI)**| **Pin 19** | SPI Master Out Slave In |
-| **MISO / SO** | **GPIO 9 (SPI0 MISO)** | **Pin 21** | SPI Master In Slave Out |
-| *GDO0* | *GPIO 24 (Optional)* | *Pin 18* | *Only for bitbang mode; not needed in SPI FIFO mode* |
-| *GDO2* | *Not Connected* | — | *Leave unconnected* |
+| **VCC** | 3.3 V | **1** (or 17) | 3.3 V only |
+| **GND** | Ground | **6** (or 9, 14, 20, 25) | |
+| **CSN** | GPIO 8 (SPI0 CE0) | **24** | Chip select |
+| **SCK** | GPIO 11 (SPI0 SCLK) | **23** | Clock |
+| **MOSI** | GPIO 10 (SPI0 MOSI) | **19** | |
+| **MISO** | GPIO 9 (SPI0 MISO) | **21** | |
+| *GDO0* | *GPIO 24* | *18* | *Only for `--mode async`* |
+| *GDO2* | — | — | *Not connected* |
 
 ---
 
-## Software Installation & Setup
+## Install
 
-### 1. Enable SPI Interface on Raspberry Pi
 ```bash
+# 1. Enable SPI: Interfacing Options → SPI → Enable, then reboot
 sudo raspi-config
-# Navigate to: Interfacing Options -> SPI -> Enable -> Yes
-sudo reboot
-```
-Verify the SPI device nodes exist:
-```bash
-ls -l /dev/spidev0.*
-# Expected output: /dev/spidev0.0  /dev/spidev0.1
-```
+ls -l /dev/spidev0.*          # expect /dev/spidev0.0 /dev/spidev0.1
 
-### 2. Clone Repository & Install Python Dependencies
-```bash
+# 2. Get Halo
 cd ~
 git clone https://github.com/Izem07/Garage-Door-Opener-Cloner.git
 cd Garage-Door-Opener-Cloner
-
-# Install system and Python dependencies
 sudo apt update
 sudo apt install -y python3-pip python3-spidev python3-paho-mqtt mosquitto-clients
 pip3 install -r requirements.txt --break-system-packages
-```
+cp remote_config.example.json remote_config.json
 
-### 3. Verify CC1101 Radio Communication
-```bash
+# 3. Check the radio
 python3 garage_door.py status
 ```
-Expected output:
+
 ```text
 ============================================================
- Garage Door Opener: Security+ 1.0 (Purple Button 315MHz)
+ Halo - Security+ 1.0 (Purple Button 315MHz)
 ============================================================
 Remote Fixed ID   : 0x25BAC093
 Rolling Counter   : 1000
@@ -128,24 +109,123 @@ Radio State       : 0x01 (0x01 = IDLE)
 
 ---
 
-## Wyze Contact Sensor Integration (Ground Truth)
+## The Halo App
 
-The system uses a Wyze Sense v2 contact sensor paired to a Wyze v1 USB bridge (`1a86:e024`) plugged into the Pi.
-
-### 1. Set Up Mosquitto MQTT & Wyze Bridge Docker
 ```bash
-# Run Mosquitto MQTT broker on host network
-sudo docker run -d \
-  --name=mosquitto \
-  --restart=always \
-  --net=host \
-  eclipse-mosquitto:latest
+python3 garage_door.py web --port 8080
+```
 
-# Prepare persistent configuration folder
+Open `http://<PI_IP>:8080` on any phone, tablet or computer on your network. With no CC1101 attached (for example on a laptop), Halo runs in **simulation mode** so you can try the app safely; the status pill in the top right shows **Simulation**.
+
+| Tab | What's there |
+| :--- | :--- |
+| **Home** | Door state and position, one-tap Open/Close, Light / Remote Lock / Contact / Car tiles, recent events |
+| **Activity** | Last 20 events with source and result |
+| **Device** | Remote ID and rolling code, CC1101 registers, door and motion sensor battery and signal, pairing guides, rolling-code resync, RF test, new remote ID, appearance |
+
+**Add to iPhone Home Screen:** open the URL in Safari → **Share** → **Add to Home Screen**. Halo then launches full screen with its own icon, like a native app.
+
+### Configuration (`remote_config.json`)
+Halo keeps the rolling code in this file. Optional keys:
+
+| Key | Default | Purpose |
+| :--- | :--- | :--- |
+| `repeats_per_press` | `8` | Bursts per button press |
+| `sensor_mac` | — | Door contact sensor MAC. When set, only this sensor can change the door state |
+| `car_sensor_mac` | — | Motion sensor MAC used for car presence |
+| `notifications.*` | off | Door alerts: `enabled`, `server`, `topic`, `left_open_minutes`, `on_open`, `on_close` (set from the app) |
+| `sensor_name` / `car_sensor_name` | `Garage Door Sensor` / `Car Bay Motion` | Friendly names shown in the app and activity log (rename in **Device → Name**) |
+| `car_detection.before_open_sec` / `after_close_sec` | `120` / `120` | How far before opening and after closing Halo looks for motion |
+| `mqtt.enabled` / `broker` / `port` | `true` / `127.0.0.1` / `1883` | Local MQTT broker (use a LAN IP, never a Tailscale address) |
+| `mqtt.topic` | `wyzesense2mqtt/#` | Wyze sensor topic |
+| `mqtt.base_topic` | `halo/garage` | Prefix for Halo's state and command topics |
+| `mqtt.username` / `password` | — | Broker login, if your broker requires one |
+
+### Run on boot (systemd)
+
+Halo listens on every interface from the moment it starts, so it doesn't wait for Wi-Fi or the internet at boot. It works the moment the LAN is up.
+
+```bash
+sudo tee /etc/systemd/system/halo.service > /dev/null << 'EOF'
+[Unit]
+Description=Halo smart garage
+After=network.target mosquitto.service
+
+[Service]
+Type=simple
+User=izem07
+WorkingDirectory=/home/izem07/Garage-Door-Opener-Cloner
+ExecStart=/usr/bin/python3 garage_door.py web --port 8080
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now halo.service
+```
+
+> Upgrading from the old `garage-door.service`? Run `sudo systemctl disable --now garage-door.service` first so both don't try to bind port 8080.
+
+---
+
+## Pairing
+
+You can also do both of these from **Device → Pairing** in the app, which walks you through each step.
+
+### Door (button 0)
+1. Press and release the **purple Learn** button on the ceiling motor. Its LED stays on for 30 s.
+2. Within 30 s: `python3 garage_door.py pair`
+3. The opener lights blink when the code is accepted.
+
+### Courtesy light (button 1)
+The light pairs from the multi-function wall console, not from the Learn button:
+1. Make sure the door is **closed**.
+2. On the wall console, hold **LIGHT**, then also hold **LOCK**.
+3. While holding both: `python3 garage_door.py pair-light`
+4. Keep holding until the opener lights flash.
+
+---
+
+## Wyze Sensors: Door Contact (Ground Truth) & Car Motion
+
+A Wyze Sense v2 contact sensor reports the real door position, and an optional Wyze Sense motion sensor lets Halo estimate whether the car is in the garage. Both pair to a Wyze v1 USB bridge (`1a86:e024`) on the Pi, and Halo receives them over MQTT. Halo tells the two apart by MAC, so motion can never be mistaken for the door opening.
+
+### Where to put the contact sensor
+Put it at the **top of the door**:
+* **Sensor body:** on the wall or header just above the door opening, near the top centre or a top corner.
+* **Magnet:** on the top edge of the **top door panel**, lined up with the sensor and within about 2 cm when the door is closed.
+* The top panel only meets the header when the door is fully down, so the sensor reads **open** if the door stops even a little way up. Up there it's also clear of cars, bikes, water and road salt.
+* **Steel door?** If the magnet sticks to the panel and the reading is flaky, put a 3–5 mm plastic or wood spacer under the magnet.
+* **Check it before you stick it down:** open and close the door a few times and watch **Device → Contact Sensor** in Halo.
+* Garages get cold, and the sensor's coin cell fades faster in winter. Halo shows its battery level.
+
+### Where to put the motion sensor (car presence)
+A motion sensor sees **movement and warm bodies**, not a parked car, so it can't simply "see" whether the car is there. Halo works it out from motion around each door cycle instead:
+
+| What happened | Halo concludes |
+| :--- | :--- |
+| Motion **before** the door opened, none **after** it closed | Someone got in and drove out: **car away** |
+| No motion before opening, motion **after** it closed | Someone drove in and got out: **car in the garage** |
+| Motion before **and** after, or none at all | Someone walked through: **no change** |
+
+It's an estimate, so you can tap **Car** in the app to correct it at any time. For the estimate to work:
+* **Mount it at the back of the bay**, about 2 m up on the back wall or the wall beside the car, **facing the driver's door and the path to the house door**.
+* **Don't let it see the garage door.** Moving door panels, sunlight and street heat through the open door all cause false triggers.
+* Keep it away from heater vents, the water heater and the opener motor.
+* If you usually take more than 2 minutes to get in and leave, raise `car_detection.before_open_sec`.
+
+> For a definite yes/no rather than an estimate, a ceiling-mounted distance sensor above the car's hood is the reliable option (an HC-SR04 ultrasonic or VL53L1X laser sensor wired to the Pi). Halo's `/api/car` endpoint is ready for it.
+
+```bash
+# Mosquitto broker
+sudo docker run -d --name=mosquitto --restart=always --net=host eclipse-mosquitto:latest
 mkdir -p /home/izem07/wyzesense-config
 ```
 
-Create `/home/izem07/wyzesense-config/config.yaml`:
+`/home/izem07/wyzesense-config/config.yaml`:
 ```yaml
 mqtt_host: 127.0.0.1
 mqtt_port: 1883
@@ -155,231 +235,233 @@ usb_dongle: auto
 hass_discovery: true
 ```
 
-Create `/home/izem07/wyzesense-config/sensors.yaml`:
+`/home/izem07/wyzesense-config/sensors.yaml`:
 ```yaml
 77CB8338:
   name: Garage Door
   sensor_type: switch
+AABB1122:            # your motion sensor's MAC (printed on the sensor)
+  name: Garage Car Bay
+  sensor_type: motion
 ```
 
-### 2. Configure Persistent Udev Auto-Reconnect Rule
-To prevent USB drops when the bridge is unplugged or re-enumerates from `/dev/hidraw0` to `/dev/hidraw1`:
+Then tell Halo which sensor is which in `remote_config.json`:
+```json
+"sensor_mac": "77CB8338",
+"car_sensor_mac": "AABB1122"
+```
 
+Each sensor shows up in the app under a friendly name (**Garage Door Sensor** and **Car Bay Motion** by default). To rename one, tap **Device → Name** (or **Motion Sensor**). The sensor's ID (MAC) is still listed underneath so you can match it to the label on the sensor.
+
+Stable device node and auto-restart when the bridge re-enumerates:
 ```bash
 sudo bash -c 'cat << "EOF" > /etc/udev/rules.d/99-wyzesense.rules
 KERNEL=="hidraw*", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="e024", MODE="0666", SYMLINK+="wyzesense", TAG+="systemd", RUN+="/usr/bin/docker restart wyzesense2mqtt"
 EOF'
-
 sudo udevadm control --reload-rules && sudo udevadm trigger
 ```
 
-### 3. Launch `wyzesense2mqtt` Container
 ```bash
-sudo docker run -d \
-  --name=wyzesense2mqtt \
-  --restart=unless-stopped \
-  --privileged \
-  --net=host \
-  -v /dev:/dev \
-  -v /home/izem07/wyzesense-config:/app/config \
-  -e MQTT_HOST=127.0.0.1 \
-  -e MQTT_PORT=1883 \
+sudo docker run -d --name=wyzesense2mqtt --restart=unless-stopped --privileged --net=host \
+  -v /dev:/dev -v /home/izem07/wyzesense-config:/app/config \
+  -e MQTT_HOST=127.0.0.1 -e MQTT_PORT=1883 \
   raetha/wyzesense2mqtt:latest
 ```
 
-When the door opens or closes, `wyzesense2mqtt` publishes to `wyzesense2mqtt/77CB8338`, and the backend immediately updates `garage_state.json`, animated UI slats, and HomeKit.
+Halo understands both the classic `wyzesense2mqtt/<MAC>` topics and the newer `ws2m/sensor/<MAC>` layout.
+
+No Wyze hardware? Any integration can report the door with `POST /api/sensor {"state": "open"}` and motion with `POST /api/motion {"motion": true}`.
 
 ---
 
-## Pairing Procedures
+## Apple Home (HomeKit) via Homebridge
 
-### Pairing the Garage Door (Button 0)
-1. Walk to your Chamberlain ceiling motor unit.
-2. Press and immediately release the **PURPLE** Learn button. The amber/purple indicator LED will glow solid ON for 30 seconds.
-3. Transmit the pairing sequence from the Pi within 30 seconds:
-   ```bash
-   python3 garage_door.py pair
-   ```
-4. **Confirmation**: The opener work lights will flash twice and the relay will click. The virtual remote is now permanently paired!
+The plugin lives in `homebridge-chamberlain-cc1101/`.
 
-### Pairing the Opener Courtesy Light (Button 1)
-Chamberlain Security+ 1.0 remotes use **Button 1** for the courtesy light. Opener ceiling units do not pair the light via the purple button; they pair via the multi-function wall console:
-1. Ensure the garage door is currently **CLOSED**.
-2. Go to the **Multi-Function Wall Door Control** inside the garage.
-3. Press and hold the physical **LIGHT** button on the wall console.
-4. While holding **LIGHT**, press and hold the **LOCK** button on the wall console.
-5. While holding both buttons, transmit the light pairing burst from the Pi:
-   ```bash
-   python3 garage_door.py pair-light
-   ```
-6. Keep holding the wall buttons until the ceiling opener lights **flash**! The light is now paired.
-
----
-
-## Native Apple HomeKit Integration
-
-The repository includes a dedicated Homebridge accessory plugin located in `homebridge-chamberlain-cc1101/`.
-
-### 1. Install Plugin in Homebridge Docker
 ```bash
 sudo cp -r ~/Garage-Door-Opener-Cloner/homebridge-chamberlain-cc1101/* \
   /var/lib/docker/volumes/homebridge_data/_data/homebridge-chamberlain-cc1101/
-
 sudo docker exec -w /homebridge homebridge npm install /homebridge/homebridge-chamberlain-cc1101
 ```
 
-### 2. Configure Homebridge (`config.json`)
-Add the accessory entry to the `"accessories"` array in `/var/lib/docker/volumes/homebridge_data/_data/config.json`:
+Add to `"accessories"` in Homebridge's `config.json` (or use the plugin's settings page in the Homebridge UI), then `sudo docker restart homebridge`:
 ```json
 {
   "accessory": "ChamberlainCC1101",
   "name": "Garage Door",
   "apiUrl": "http://127.0.0.1:8080",
-  "doorTravelTime": 12
+  "lightName": "Garage Light"
 }
 ```
 
-Restart Homebridge:
-```bash
-sudo docker restart homebridge
-```
+`127.0.0.1` works when Homebridge's container uses host networking (`--net=host`). Otherwise use the Pi's home-network IP.
 
-### 3. Apple Home Features
-* **Two Integrated Accessories**: "Garage Door" (Door Opener service) and "Garage Door Light" (Lightbulb service).
-* **Dual-Layer Synchronization**: Combines instant inotify filesystem watches on `garage_state.json` with periodic 3-second HTTP status polling for zero-lag state tracking.
-* **Siri Voice Commands**:
-  * *"Hey Siri, open the garage door."*
-  * *"Hey Siri, is the garage door closed?"*
-  * *"Hey Siri, turn on the garage light."*
-* **Remote Access (Outside Home)**: Requires an Apple Home Hub (Apple TV 4K, HomePod, or iPad) or a Tailscale tunnel to your local network.
+What you get in Apple Home:
 
----
+* **Garage Door**, which follows Halo live. Halo pushes every change to the plugin instantly (with polling every 3 s as a fallback if that connection drops). A door opened by the wall button or a handheld remote shows up in Home within about a second, as soon as the contact sensor reports it.
+* **Garage Light**, a button-style switch. Tap it and Halo presses the opener's light button; the switch flips back off by itself. Halo can't see the light, so there's no on/off state to get wrong. "Hey Siri, turn on Garage Light" works, and "turn off" presses the same button.
+* Open and close are explicit, so "open" never closes an already-open door. If Halo's remote lock is on, Home shows an error and snaps back instead of pretending the door moved.
+* Halo is the only thing that writes `garage_state.json`; the plugin just follows Halo.
+* Siri: *"Hey Siri, open the garage door"*, *"Is the garage door closed?"*, *"Turn on Garage Light."*
 
-## Web Dashboard & iOS PWA Setup
+> **Upgrading from plugin 1.x:** the light used to be a lightbulb called "Garage Door Light". It's now a switch called "Garage Light", so re-add it to any scenes or automations that used the old one.
 
-Run the dashboard manually or via systemd on port `8080`:
-
-```bash
-python3 garage_door.py web --port 8080
-```
-
-Access the interface from any phone, tablet, or PC on your network at `http://<PI_IP>:8080`.
-
-### Key Dashboard Features
-* **Volumetric Ceiling Light Simulation**: When the courtesy light is turned ON, the overhead fixture in the SVG graphic illuminates with bright golden bloom and casts translucent volumetric light rays down onto the door.
-* **Ground-Truth Sensor Pill**: Displays live Wyze sensor MAC, signal strength (dBm), battery gauge (%), and connection state.
-* **Live Auto-Off Countdown**: Displays `⏱ Auto-off 4:26` (mm:ss) counting down Chamberlain's 4.5-minute timeout.
-* **Quick Presets**: "Vent 25%" (cracks door for ventilation) and "Open 100%".
-* **Tactile Audio Feedback**: Mechanical sound synthesizer via Web Audio API with a one-tap mute button (`🔊`/`🔇`).
-* **Dark & Light Modes**: Seamless high-contrast navy dark mode and crisp slate light mode with localStorage persistence.
-
-### Add to iPhone Home Screen (PWA Mode)
-1. Open Safari on iPhone and navigate to `http://<PI_IP>:8080`.
-2. Tap the **Share** button (box with upward arrow).
-3. Select **Add to Home Screen**.
-4. The dashboard will launch fullscreen without browser chrome, complete with custom high-DPI app icons.
+**Notifications:** Apple Home only sends accessory notifications through a home hub (Apple TV or HomePod). Without one, use Halo's own [door alerts](#door-alerts-notifications) instead.
+* Away from home: an Apple Home hub, or the Halo app over Tailscale. See [Local-first](#local-first-no-internet-or-tailscale-required).
 
 ---
 
-## Automatic Startup on Boot (systemd)
+## Door Alerts (Notifications)
 
-Enable `garage-door.service` to start on boot:
+Halo can notify your phone when the **garage door** opens, closes, or is left open. Only the door sends alerts: the light, motion sensor and car never do. Alerts go through the free **ntfy** app, so no Apple home hub is needed.
 
-```bash
-sudo tee /etc/systemd/system/garage-door.service > /dev/null << 'EOF'
-[Unit]
-Description=Chamberlain 315MHz Smart Garage Door Opener Backend
-After=network.target mosquitto.service
+1. Install **ntfy** on your iPhone (App Store) and allow notifications.
+2. In Halo, go to **Device → Door Alerts** and turn on **Notify Me**. Halo creates a private, hard-to-guess topic name such as `halo-5d887f447e0c0a1b`.
+3. Tap **ntfy Topic** to copy it. In ntfy, tap **+**, paste the topic, and subscribe.
+4. Tap **Send Test Notification** in Halo.
 
-[Service]
-Type=simple
-User=izem07
-WorkingDirectory=/home/izem07/Garage-Door-Opener-Cloner
-ExecStart=/usr/bin/python3 /home/izem07/Garage-Door-Opener-Cloner/garage_door.py web --port 8080
-Restart=always
-RestartSec=5
+| Alert | When |
+| :--- | :--- |
+| **Garage door opened** | Every opening, with who did it: Halo app, HomeKit, MQTT, or "remote or wall button" (spotted by the contact sensor) |
+| **Garage door closed** | Every closing, with how long it was open |
+| **Garage door left open** | After 5, 10 or 30 minutes (your choice), repeated up to 3 times. It has a **Close door** button, which works when your phone can reach Halo (home Wi-Fi or Tailscale) |
 
-[Install]
-WantedBy=multi-user.target
-EOF
+You can switch "When Opened" and "When Closed" off and keep only the left-open reminder.
 
-sudo systemctl daemon-reload
-sudo systemctl enable --now garage-door.service
-```
+* Alerts are sent from a background thread and retried for about a minute, so a slow or missing internet connection never delays the door. Opening and closing keep working with no internet; only the alert has to wait.
+* Want everything self-hosted? Run your own ntfy server and set its address in `remote_config.json` (`notifications.server`).
+* Tapping an alert opens Halo at the address you used when you turned alerts on.
 
 ---
 
-## CLI Command Reference
+## Local-first: No Internet or Tailscale Required
+
+Everything that opens the door stays on your LAN. The internet and Tailscale are optional extras on top, never in the path:
+
+```text
+Siri / Home app ──HAP (Wi-Fi)──► Homebridge ──127.0.0.1──► Halo ──SPI──► CC1101 ──315 MHz──► opener
+Halo app ──────────LAN─────────────────────────────────────► Halo
+Wyze sensor ──► wyzesense2mqtt ──► Mosquitto (127.0.0.1) ──► Halo
+```
+
+When your modem loses internet or the router reboots, every one of those hops keeps working, and Halo recovers within seconds:
+
+| Piece | How it stays local | Recovery |
+| :--- | :--- | :--- |
+| Halo server | Binds `0.0.0.0` with no cloud calls. The app loads nothing from the web | Starts at boot without waiting for the network |
+| MQTT | Broker on the Pi (`127.0.0.1`) | Reconnects every 1–5 s (keep-alive 15 s) |
+| Homebridge plugin | Talks to Halo on `127.0.0.1` | 3 s timeout, fresh connection per request |
+| Halo app | Same-origin requests to the Pi | Live push reconnects in 1 s, polls every 2 s meanwhile, reconnects the moment Wi-Fi returns |
+
+### One-time network setup (on your router)
+1. **Reserve fixed IPs.** Create a DHCP reservation for the Pi (and the Homebridge host if it's a separate machine) so the address never changes after a router reboot.
+2. **Use the LAN address everywhere.** Bookmark `http://<pi-ip>:8080` or `http://<pi-hostname>.local:8080` for the app, and point `apiUrl` and `mqtt.broker` at `127.0.0.1` or the Pi's LAN IP, **never a Tailscale `100.x` / `.ts.net` address**.
+3. **Pair Homebridge on Wi-Fi.** Add the bridge in the Home app while on your home network. Apple Home talks to it directly over HAP.
+
+### Away from home
+* **Apple Home:** an Apple Home hub on your LAN relays commands, so no Tailscale is needed on your phone.
+* **Halo app, SSH, admin:** use Tailscale. It's only an overlay for remote access, so turning it off on your phone at home changes nothing.
+
+**Quick test:** unplug the modem's internet cable (leave the router and Wi-Fi on). Opening and closing from the Home app, Siri and the Halo app should all still work instantly on Wi-Fi.
+
+### MQTT topics (local broker)
+Use these with any local MQTT client, such as Homebridge `mqttthing` or Home Assistant, as an alternative to the Homebridge plugin.
+
+| Topic | Direction | Payload |
+| :--- | :--- | :--- |
+| `halo/status` | Halo → broker (retained, last-will) | `online` / `offline` |
+| `halo/garage/state` | Halo → broker (retained) | `{"door":"closed","percent":0,"light":"off","lock":"off",...}` |
+| `halo/garage/door` | Halo → broker (retained) | `open` · `closed` · `opening` · `closing` |
+| `halo/garage/light` · `halo/garage/lock` | Halo → broker (retained) | `on` · `off` |
+| `halo/garage/door/set` | you → Halo | `open` · `close` · `toggle` |
+| `halo/garage/light/set` | you → Halo | any payload presses the light button (toggle) |
+| `halo/garage/lock/set` | you → Halo | `on` · `off` |
+| `halo/garage/car` | Halo → broker (retained) | `present` · `away` · `unknown` |
+| `halo/garage/motion` | Halo → broker (retained) | `on` · `off` |
+| `halo/garage/car/set` | you → Halo | `present` · `away` (manual correction) |
+
+`open` while the door is already open (or opening) does nothing, and likewise for `close` and light `on`/`off`. Retained `/set` messages are ignored, so a stale command can never replay after a reconnect. The remote lock blocks door commands here too.
+
+---
+
+## CLI Reference
 
 | Command | Description |
 | :--- | :--- |
-| `python3 garage_door.py toggle` | Toggle door open/closed (increments rolling counter) |
-| `python3 garage_door.py open` | Open the garage door |
-| `python3 garage_door.py close` | Close the garage door |
-| `python3 garage_door.py light` | Toggle opener courtesy light (Button 1) |
-| `python3 garage_door.py pair` | Transmit door pairing sequence (Purple button) |
-| `python3 garage_door.py pair-light` | Transmit light pairing sequence (Wall console) |
-| `python3 garage_door.py status` | Inspect hardware connection, rolling codes, and registers |
-| `python3 garage_door.py set-counter <val>` | Manually advance or resynchronize the rolling counter |
-| `python3 garage_door.py reset-remote` | Generate a new random Virtual Remote ID |
-| `python3 garage_door.py test-rf -d 5.0` | Transmit 5-second 315.00 MHz carrier tone for SDR verification |
-| `python3 garage_door.py web --port 8080` | Start the Web Dashboard and REST API server |
+| `python3 garage_door.py toggle` | Open/close the door (advances the rolling code) |
+| `python3 garage_door.py light` | Toggle the courtesy light (button 1) |
+| `python3 garage_door.py pair` | Send door pairing bursts (after pressing Learn) |
+| `python3 garage_door.py pair-light` | Send light pairing bursts (wall console) |
+| `python3 garage_door.py status` | Remote ID, rolling code and CC1101 registers |
+| `python3 garage_door.py set-counter <n>` | Resync the rolling code |
+| `python3 garage_door.py reset-remote` | Generate a new virtual remote ID |
+| `python3 garage_door.py test-rf -d 5` | Transmit test bursts for SDR verification |
+| `python3 garage_door.py web --port 8080` | Start the Halo server |
+
+Global flags: `--config`, `--spi-bus`, `--spi-device`, `--mode fifo|async`, `--gdo0 <bcm-pin>`.
 
 ---
 
-## REST API Reference
+## REST API
 
-The backend exposes a full JSON REST API:
-
-| Endpoint | Method | Payload Example | Description |
+| Endpoint | Method | Body | Description |
 | :--- | :--- | :--- | :--- |
-| `/api/status` | `GET` | — | Full telemetry (door, light, sensor, hardware, logs) |
-| `/api/toggle` | `POST` | `{"repeats": 8}` | Toggle garage door |
-| `/api/light` | `POST` | `{"repeats": 8}` | Toggle opener courtesy light |
-| `/api/light/state` | `POST` | `{"on": true}` | Explicitly set light state (external sensor/smart bulb) |
-| `/api/sensor` | `POST` | `{"state": "open"}` | Ingest external contact sensor updates |
-| `/api/lock` | `POST` | `{"locked": true}` | Enable or disable software remote lock |
-| `/api/pair` | `POST` | `{"repeats": 16}` | Transmit door pairing bursts |
-| `/api/pair-light` | `POST` | `{"repeats": 24}` | Transmit wall console light pairing bursts |
-| `/api/set-counter` | `POST` | `{"counter": 1200}` | Update rolling code counter |
-| `/api/reset-remote`| `POST` | `{"start_counter": 1000}` | Generate new virtual remote ID |
-| `/api/test-rf` | `POST` | `{"duration": 3.0}` | Transmit RF carrier test signal |
-| `/api/logs` | `GET` | — | Retrieve recent activity history |
+| `/api/status` | GET | — | Full state: door, light, sensor, lock, radio, recent events |
+| `/api/events` | GET | — | Server-Sent Events: a full status object on every change, keep-alive every 15 s |
+| `/api/logs` | GET | — | Last 50 events |
+| `/api/toggle` | POST | `{"source": "Shortcut"}` | One door-button press. Returns **423** while the remote lock is on |
+| `/api/open` · `/api/close` | POST | — | Open / close, and does nothing if the door is already there or heading there. **423** when locked |
+| `/api/light` | POST | `{"source": "Halo app"}` | Press the light button. Always a toggle; the reply's `light_on` is only an estimate |
+| `/api/light/state` | POST | `{"on": true}` | Report light state from an external sensor (no RF) |
+| `/api/notifications` | POST | `{"enabled": true, "left_open_minutes": 10}` | Door alert settings (also `on_open`, `on_close`, `server`, `topic`) |
+| `/api/notifications/test` | POST | — | Send a test alert |
+| `/api/sensor` | POST | `{"state": "open"}` or `{"contact": false}` | Ground-truth door state |
+| `/api/motion` | POST | `{"motion": true}` | Report car-bay motion from any integration |
+| `/api/car` | POST | `{"present": true}` | Set car presence (manual correction or a distance sensor) |
+| `/api/sensor-name` | POST | `{"sensor": "door", "name": "Side Door"}` | Rename the `door` or `motion` sensor (1–32 characters) |
+| `/api/lock` | POST | `{"locked": true}` | Set the remote lock (omit `locked` to toggle) |
+| `/api/pair` | POST | `{"repeats": 16}` | Door pairing bursts |
+| `/api/pair-light` | POST | `{"repeats": 24}` | Light pairing bursts |
+| `/api/set-counter` | POST | `{"counter": 1200}` | Set the rolling code |
+| `/api/reset-remote` | POST | `{"start_counter": 1000}` | New virtual remote ID |
+| `/api/test-rf` | POST | `{"duration": 3}` | RF test bursts (0.5–10 s) |
+
+`repeats` is clamped to 1–32.
+
+### Performance notes
+* Status reads come from memory. CC1101 identity registers are read once at startup, and the state register only after a transmission, so polling never touches the SPI bus.
+* Static files are cached in memory, gzip-compressed once (the app is about 12 KB on the wire) and served with ETags.
+* The courtesy-light auto-off is a single timer, not a polling loop. Door travel updates 4×/s, and the UI animates between updates.
+* `garage_state.json` is written atomically, so the Homebridge file watcher never reads a partial file.
 
 ---
 
-## Security+ 1.0 Protocol Deep Dive
+## Security+ 1.0 Protocol
 
 ```text
-315.00 MHz Carrier | ASK / OOK Modulation | 2000 Baud (500 µs base bit duration)
+315.00 MHz carrier | OOK | 500 µs base unit | 2 ms per symbol
 ```
 
-1. **Ternary Symbols**: Data is encoded using 3 distinct pulse-width modulation symbols of 2.0 ms total duration:
-   * **Symbol 0**: 500 µs RF High + 1500 µs RF Low
-   * **Symbol 1**: 1000 µs RF High + 1000 µs RF Low
-   * **Symbol 2**: 1500 µs RF High + 500 µs RF Low
-2. **Two-Frame Transmission Structure**:
-   * Each button press transmits a 40-symbol packet divided across two frames:
-     * **Frame 1**: Sync Symbol `0` (500 µs High / 1500 µs Low) followed by 20 ternary data symbols + 58 ms inter-frame blanking delay.
-     * **Frame 2**: Sync Symbol `2` (1500 µs High / 500 µs Low) followed by 20 ternary data symbols + 58 ms inter-frame blanking delay.
-3. **Payload Composition**:
-   * The 40 symbols represent the interleaved combination of the **32-bit Fixed Remote ID**, the **16-bit Rolling Counter**, and the **Button Code** (Button 0 for Door, Button 1 for Courtesy Light).
-4. **Rolling Code Synchronization Window**:
-   * The opener accepts codes within a forward window of ~256 counts. Pressing the remote out of range resynchronizes automatically on the next received in-window transmission.
+1. **Ternary symbols** (2.0 ms each):
+   * `0`: 500 µs on, 1500 µs off
+   * `1`: 1000 µs on, 1000 µs off
+   * `2`: 1500 µs on, 500 µs off
+2. **Two frames per press**, 20 data symbols each:
+   * Frame 1 starts with sync `0`, frame 2 with sync `2`. Each frame is followed by ~58 ms of silence.
+3. **Payload:** the 40 symbols interleave the **32-bit fixed remote ID**, the **rolling counter** and the **button** (0 = door, 1 = light).
+4. **Rolling window:** the opener accepts codes up to ~256 steps ahead. If it stops responding, resync from **Device → Resync Rolling Code** or `set-counter`.
 
 ---
 
-## RF Range & Hardware Optimization
+## RF Range
 
-1. **Antenna Quarter-Wave Calculation**:
-   Most generic CC1101 modules ship with 433 MHz spring antennas. For maximum 315 MHz range (100+ feet through walls):
-   $$\lambda = \frac{c}{f} = \frac{300 \times 10^6 \text{ m/s}}{315 \times 10^6 \text{ Hz}} \approx 0.952\text{ m}$$
-   $$\text{Quarter-Wave Length } (\lambda / 4) \approx \frac{95.2\text{ cm}}{4} \approx 23.8\text{ cm } (9.37\text{ inches})$$
-   Solder a straight 23.8 cm solid copper wire to the antenna pad, or use an SMA 315 MHz tuned whip antenna.
-2. **Ground Plane**: Ensure the Raspberry Pi power supply is rated for at least 2.5A to avoid brownouts during radio burst transmissions.
+* **Antenna.** Most CC1101 modules ship with a 433 MHz spring. For 315 MHz use a quarter-wave wire:
+  $$\lambda/4 = \frac{c}{4f} = \frac{3\times10^8}{4 \times 315\times10^6} \approx 23.8\text{ cm } (9.37\text{ in})$$
+  Solder a straight 23.8 cm solid copper wire to the antenna pad, or fit a tuned 315 MHz SMA whip.
+* **Power.** Use a supply rated for at least 2.5 A to avoid brownouts during transmissions.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+MIT. See [LICENSE](LICENSE).

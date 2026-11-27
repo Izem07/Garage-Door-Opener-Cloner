@@ -6,6 +6,8 @@ Persists the virtual remote ID and rolling code counter to disk.
 import json
 import os
 import random
+import threading
+import time
 from typing import Tuple, Dict, Any
 
 DEFAULT_CONFIG_PATH = os.path.join(os.path.dirname(__file__), "remote_config.json")
@@ -36,64 +38,106 @@ def generate_handheld_remote_id(button: int = 0) -> int:
 
 
 class RemoteManager:
-    """Manages persistent remote settings and rolling code counter."""
+    """
+    Manages persistent remote settings and rolling code counter.
+
+    Safety rules (the remote ID and counter are what the opener is paired to):
+      * Writes are atomic (temp file + rename), so a reader never sees half a file.
+      * An existing but unreadable config is NEVER replaced with a new remote ID.
+      * The file is only re-read when it changed on disk, and only re-written
+        when something actually changed, which spares the Pi's SD card.
+    """
 
     def __init__(self, config_path: str = DEFAULT_CONFIG_PATH):
         self.config_path = config_path
+        self.lock = threading.RLock()
+        self._mtime = None
         self.config = self.load_config()
 
-    def load_config(self) -> Dict[str, Any]:
-        """Load remote configuration from disk or initialize defaults."""
-        if os.path.exists(self.config_path):
+    def _read_file(self) -> Dict[str, Any]:
+        last_err = None
+        for _ in range(5):                  # tolerate a write from another process in flight
             try:
                 with open(self.config_path, "r", encoding="utf-8") as f:
-                    cfg = json.load(f)
-                    if "fixed_code" in cfg and "rolling_code" in cfg:
-                        fixed = int(cfg["fixed_code"])
-                        # Enforce id1 != 0 (remote not keypad) and button = 0 (large door button)
-                        remote_base = fixed // 27
-                        if (fixed // 9) % 3 == 0 or (fixed % 3) != 0:
-                            # Re-encode as large main button (button=0) and handheld remote (id1=1)
-                            fixed = (remote_base * 27) + (1 * 9) + (0 * 3) + 0
-                            cfg["fixed_code"] = fixed
-                        if cfg.get("step", 2) < 2:
-                            cfg["step"] = 2
-                        if cfg.get("repeats_per_press", 8) < 8:
-                            cfg["repeats_per_press"] = 8
-                        self.save_config(cfg)
-                        return cfg
-            except Exception:
-                pass
+                    return json.load(f)
+            except (ValueError, OSError) as e:
+                last_err = e
+                time.sleep(0.05)
+        raise RuntimeError(f"Cannot read {self.config_path}: {last_err}. "
+                           "Fix or restore the file; Halo will not overwrite it with a new remote ID.")
 
-        # Generate a new unique remote configuration
-        cfg = {
-            "name": "Chamberlain Purple 315MHz Virtual Remote",
-            "frequency_mhz": 315.00,
-            "fixed_code": generate_handheld_remote_id(button=0),
-            "rolling_code": 1000,
-            "repeats_per_press": 8,
-            "step": 2,
-        }
-        self.save_config(cfg)
-        return cfg
+    def load_config(self) -> Dict[str, Any]:
+        """Load remote configuration from disk, or create one only if none exists."""
+        with self.lock:
+            if os.path.exists(self.config_path):
+                cfg = self._read_file()
+                if "fixed_code" not in cfg or "rolling_code" not in cfg:
+                    raise RuntimeError(f"{self.config_path} is missing fixed_code/rolling_code; not overwriting it.")
+                before = json.dumps(cfg, sort_keys=True)
+                fixed = int(cfg["fixed_code"])
+                # Enforce id1 != 0 (remote not keypad) and button = 0 (large door button)
+                if (fixed // 9) % 3 == 0 or (fixed % 3) != 0:
+                    cfg["fixed_code"] = ((fixed // 27) * 27) + (1 * 9) + (0 * 3) + 0
+                if cfg.get("step", 2) < 2:
+                    cfg["step"] = 2
+                if cfg.get("repeats_per_press", 8) < 8:
+                    cfg["repeats_per_press"] = 8
+                if json.dumps(cfg, sort_keys=True) != before:
+                    self.save_config(cfg)
+                else:
+                    self._mtime = self._stat()
+                return cfg
+
+            # First run: generate a new unique remote configuration
+            cfg = {
+                "name": "Halo Virtual Remote",
+                "frequency_mhz": 315.00,
+                "fixed_code": generate_handheld_remote_id(button=0),
+                "rolling_code": 1000,
+                "repeats_per_press": 8,
+                "step": 2,
+            }
+            self.save_config(cfg)
+            return cfg
+
+    def _stat(self):
+        try:
+            st = os.stat(self.config_path)
+            return (st.st_mtime_ns, st.st_size)
+        except OSError:
+            return None
 
     def save_config(self, cfg: Dict[str, Any] = None):
-        """Save configuration to JSON file."""
-        if cfg is None:
-            cfg = self.config
-        with open(self.config_path, "w", encoding="utf-8") as f:
-            json.dump(cfg, f, indent=4)
-            f.flush()
-            os.fsync(f.fileno())
+        """Atomically save configuration (temp file + rename, fsynced)."""
+        with self.lock:
+            if cfg is None:
+                cfg = self.config
+            tmp = self.config_path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(cfg, f, indent=4)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp, self.config_path)
+            self._mtime = self._stat()
 
     def reload(self):
-        """Reload configuration from disk to stay in sync with other processes."""
-        self.config = self.load_config()
+        """Re-read the config only if another process (e.g. the CLI) changed it."""
+        with self.lock:
+            if self._stat() != self._mtime:
+                self.config = self.load_config()
+
+    def update(self, **values):
+        """Change top-level settings and save them (thread-safe)."""
+        with self.lock:
+            self.reload()
+            self.config.update(values)
+            self.save_config()
 
     def peek_codes(self) -> Tuple[int, int]:
         """View the current (rolling_code, fixed_code) without incrementing."""
-        self.reload()
-        return int(self.config["rolling_code"]), int(self.config["fixed_code"])
+        with self.lock:
+            self.reload()
+            return int(self.config["rolling_code"]), int(self.config["fixed_code"])
 
     def get_next_codes(self) -> Tuple[int, int]:
         """
@@ -107,49 +151,54 @@ class RemoteManager:
         Get the current (rolling_code, fixed_code) for a specific button
         (0 = Door, 1 = Light / Accessory, 2 = Right), and advance the shared rolling counter.
         """
-        self.reload()
-        rolling = int(self.config["rolling_code"])
-        fixed = int(self.config["fixed_code"])
-        step = int(self.config.get("step", 2))
+        with self.lock:
+            self.reload()
+            rolling = int(self.config["rolling_code"])
+            fixed = int(self.config["fixed_code"])
+            step = int(self.config.get("step", 2))
 
-        # Derive button-specific fixed ID using the same remote serial base
-        remote_base = fixed // 27
-        btn_fixed = (remote_base * 27) + (1 * 9) + (0 * 3) + (button % 3)
+            # Derive button-specific fixed ID using the same remote serial base
+            remote_base = fixed // 27
+            btn_fixed = (remote_base * 27) + (1 * 9) + (0 * 3) + (button % 3)
 
-        # Advance rolling code
-        next_rolling = (rolling + step) % (MAX_ROLLING_CODE + 1)
-        self.config["rolling_code"] = next_rolling
-        self.save_config()
+            # Advance rolling code (persisted before transmitting, so a crash never reuses a code)
+            next_rolling = (rolling + step) % (MAX_ROLLING_CODE + 1)
+            self.config["rolling_code"] = next_rolling
+            self.save_config()
 
-        return rolling, btn_fixed
+            return rolling, btn_fixed
 
     def reset_remote(self, fixed_code: int = None, start_rolling: int = 1000, button: int = 0):
         """Reset the virtual remote with a new fixed ID and initial rolling counter."""
-        if fixed_code is None:
-            fixed_code = generate_handheld_remote_id(button=button)
-        self.config["fixed_code"] = fixed_code % (MAX_FIXED_CODE + 1)
-        self.config["rolling_code"] = start_rolling % (MAX_ROLLING_CODE + 1)
-        self.save_config()
-        return self.config["fixed_code"], self.config["rolling_code"]
+        with self.lock:
+            if fixed_code is None:
+                fixed_code = generate_handheld_remote_id(button=button)
+            self.config["fixed_code"] = fixed_code % (MAX_FIXED_CODE + 1)
+            self.config["rolling_code"] = start_rolling % (MAX_ROLLING_CODE + 1)
+            self.save_config()
+            return self.config["fixed_code"], self.config["rolling_code"]
 
     def set_button(self, button_num: int):
         """Switch active button (0 = Large Main Door, 1 = Left, 2 = Right)."""
-        self.reload()
-        fixed = int(self.config["fixed_code"])
-        remote_base = fixed // 27
-        new_fixed = (remote_base * 27) + (1 * 9) + (0 * 3) + (button_num % 3)
-        self.config["fixed_code"] = new_fixed
-        self.save_config()
-        return new_fixed
+        with self.lock:
+            self.reload()
+            fixed = int(self.config["fixed_code"])
+            remote_base = fixed // 27
+            new_fixed = (remote_base * 27) + (1 * 9) + (0 * 3) + (button_num % 3)
+            self.config["fixed_code"] = new_fixed
+            self.save_config()
+            return new_fixed
 
     def set_rolling_code(self, new_val: int):
         """Manually adjust rolling code."""
-        self.reload()
-        self.config["rolling_code"] = int(new_val) % (MAX_ROLLING_CODE + 1)
-        self.save_config()
+        with self.lock:
+            self.reload()
+            self.config["rolling_code"] = int(new_val) % (MAX_ROLLING_CODE + 1)
+            self.save_config()
 
     def set_fixed_code(self, fixed_val: int):
         """Manually set remote fixed ID."""
-        self.reload()
-        self.config["fixed_code"] = int(fixed_val) % (MAX_FIXED_CODE + 1)
-        self.save_config()
+        with self.lock:
+            self.reload()
+            self.config["fixed_code"] = int(fixed_val) % (MAX_FIXED_CODE + 1)
+            self.save_config()

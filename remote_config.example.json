@@ -1,8 +1,23 @@
 {
-    "name": "Chamberlain Purple 315MHz Virtual Remote",
+    "name": "Halo Virtual Remote",
     "frequency_mhz": 315.0,
     "fixed_code": 632995987,
     "rolling_code": 1000,
     "repeats_per_press": 8,
-    "step": 2
+    "step": 2,
+    "sensor_mac": "77CB8338",
+    "sensor_name": "Garage Door Sensor",
+    "car_sensor_mac": "AABB1122",
+    "car_sensor_name": "Car Bay Motion",
+    "car_detection": {
+        "before_open_sec": 120,
+        "after_close_sec": 120
+    },
+    "mqtt": {
+        "enabled": true,
+        "broker": "127.0.0.1",
+        "port": 1883,
+        "topic": "wyzesense2mqtt/#",
+        "base_topic": "halo/garage"
+    }
 }

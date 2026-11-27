@@ -53,3 +53,7 @@ __pycache__/
 
 # Local remote configuration & rolling codes
 remote_config.json
+
+# Runtime door state (written by Halo, read by Homebridge)
+garage_state.json
+*.json.tmp

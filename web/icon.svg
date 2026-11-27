@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1c2438"/><stop offset="1" stop-color="#080b14"/>
+    </linearGradient>
+    <radialGradient id="bloom" cx="512" cy="630" r="330" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#283e68" stop-opacity=".6"/><stop offset="1" stop-color="#283e68" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="glowW" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="14" result="b"/>
+      <feFlood flood-color="#96beff" flood-opacity=".55"/><feComposite in2="b" operator="in"/>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="228" fill="url(#bg)"/>
+  <rect width="1024" height="1024" rx="228" fill="url(#bloom)"/>
+  <g fill="none" stroke="#ecf0f8" stroke-linecap="round" stroke-linejoin="round" filter="url(#glowW)">
+    <path d="M196 528 512 340l316 188" stroke-width="30"/>
+    <path d="M262 492v320h500V492" stroke-width="28"/>
+    <rect x="346" y="576" width="332" height="236" rx="10" stroke-width="24"/>
+    <path d="M384 636h256M384 692h256M384 748h256" stroke-width="14" stroke-opacity=".6"/>
+    <path d="M458.4 275A70 70 0 0 1 565.6 275M412.4 236.4A130 130 0 0 1 611.6 236.4M366.5 197.8A190 190 0 0 1 657.5 197.8" stroke-width="28"/>
+  </g>
+</svg>

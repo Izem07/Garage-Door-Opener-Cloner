@@ -1,28 +1,44 @@
 {
   "pluginAlias": "ChamberlainCC1101",
   "pluginType": "accessory",
+  "headerDisplay": "Halo garage door and light for Apple Home. Halo must be running on this machine (or set its address below).",
   "schema": {
     "type": "object",
     "properties": {
       "name": {
-        "title": "Accessory Name",
+        "title": "Garage Door Name",
         "type": "string",
         "default": "Garage Door",
         "required": true
       },
-      "scriptPath": {
-        "title": "Path to garage_door.py",
+      "apiUrl": {
+        "title": "Halo Address",
         "type": "string",
-        "default": "/home/izem07/Garage-Door-Opener-Cloner/garage_door.py",
-        "required": true
+        "default": "http://127.0.0.1:8080",
+        "description": "Where Halo is running. Use 127.0.0.1 or the Pi's home-network IP, never a Tailscale address."
+      },
+      "showLight": {
+        "title": "Show light button",
+        "type": "boolean",
+        "default": true,
+        "description": "Adds a switch that toggles the opener light. It flips back off after each tap, because Halo can't see whether the light is on."
+      },
+      "lightName": {
+        "title": "Light Button Name",
+        "type": "string",
+        "default": "Garage Light"
+      },
+      "scriptPath": {
+        "title": "garage_door.py path (legacy mode only)",
+        "type": "string",
+        "description": "Only if you don't run the Halo server: leave Halo Address empty and set this instead."
       },
       "doorTravelTime": {
-        "title": "Door Travel Time (seconds)",
+        "title": "Door Travel Time (seconds, legacy mode only)",
         "type": "integer",
         "default": 12,
         "minimum": 3,
-        "maximum": 60,
-        "description": "How long it takes for the garage door to fully open or close."
+        "maximum": 60
       }
     }
   }
