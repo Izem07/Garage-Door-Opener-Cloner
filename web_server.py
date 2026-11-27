@@ -636,29 +636,98 @@ def save_distance_settings():
         CTX["remote_mgr"].update(distance_sensor=json.loads(json.dumps(DIST)))
 
 
-def _distance_reader():
-    """Reads HC-SR04 ultrasonic sensors on the Pi's GPIO (via gpiozero), one at a time
-    so their pings don't interfere."""
-    devices = []
+_dist_runner = {"thread": None, "stop": threading.Event(), "lock": threading.Lock()}
+DIST_OPEN_RETRY_SEC = 30
+
+
+def _open_hcsr04(cfg):
+    from gpiozero import DistanceSensor
+    return DistanceSensor(echo=int(cfg["echo_pin"]), trigger=int(cfg["trigger_pin"]),
+                          max_distance=DIST["max_cm"] / 100.0, queue_len=1)
+
+
+def _pin_conflicts():
+    """Same GPIO used twice in the config is a guaranteed 'GPIO busy'."""
+    seen, clashes = {}, []
     for cfg in DIST["sensors"]:
         if cfg.get("driver", "hcsr04") != "hcsr04":
-            continue                                     # 'api'/'grid' sensors push to /api/distance
-        try:
-            from gpiozero import DistanceSensor
-            devices.append((cfg["id"], DistanceSensor(echo=int(cfg["echo_pin"]), trigger=int(cfg["trigger_pin"]),
-                                                      max_distance=DIST["max_cm"] / 100.0, queue_len=1)))
-        except Exception as e:
-            DIST_INFO.update(status="error", error=f"Can't open sensor '{cfg['id']}' on GPIO "
-                                                   f"{cfg.get('trigger_pin')}/{cfg.get('echo_pin')}: {e}")
+            continue
+        for role in ("trigger_pin", "echo_pin"):
+            pin = cfg.get(role)
+            if pin in seen:
+                clashes.append(f"GPIO {pin} is used by both '{seen[pin]}' and '{cfg['id']}'")
+            seen[pin] = cfg["id"]
+    return clashes
+
+
+def _distance_reader(stop: threading.Event):
+    """Reads HC-SR04 ultrasonic sensors on the Pi's GPIO (via gpiozero), one at a time so
+    their pings don't interfere. Owns the GPIO pins while running and always releases them."""
+    devices, failed, next_try = {}, {}, 0.0
+    try:
+        clashes = _pin_conflicts()
+        if clashes:
+            DIST_INFO.update(status="error", error="; ".join(clashes) + ". Give each sensor its own pins.")
             notify_change()
-    while DIST["enabled"] and devices:
-        for sid, dev in devices:
+            return
+        while not stop.is_set():
+            # (Re)open any sensor that isn't open yet, e.g. after 'GPIO busy'
+            if time.monotonic() >= next_try:
+                for cfg in DIST["sensors"]:
+                    if cfg.get("driver", "hcsr04") != "hcsr04" or cfg["id"] in devices:
+                        continue
+                    try:
+                        devices[cfg["id"]] = _open_hcsr04(cfg)
+                        failed.pop(cfg["id"], None)
+                    except Exception as e:
+                        why = str(e)
+                        if "busy" in why.lower():
+                            why = ("those pins are already in use by another program or another copy of Halo "
+                                   "(check: pgrep -af garage_door)")
+                        failed[cfg["id"]] = (f"Can't open sensor '{cfg['id']}' on GPIO {cfg.get('trigger_pin')}/"
+                                             f"{cfg.get('echo_pin')}: {why}. Retrying every {DIST_OPEN_RETRY_SEC} s.")
+                next_try = time.monotonic() + DIST_OPEN_RETRY_SEC
+                DIST_INFO["error"] = " ".join(failed.values()) or None
+                if failed and not devices:
+                    DIST_INFO["status"] = "error"
+                notify_change()
+            for sid, dev in list(devices.items()):
+                if stop.is_set():
+                    break
+                try:
+                    ingest_distance(sid, dev.distance * 100.0)
+                except Exception as e:
+                    DIST_INFO.update(error=str(e)[:160])
+                stop.wait(0.08)                              # let echoes die down before the next ping
+            stop.wait(DIST["interval"])
+    finally:
+        for dev in devices.values():                         # always give the pins back
             try:
-                ingest_distance(sid, dev.distance * 100.0)
-            except Exception as e:
-                DIST_INFO.update(error=str(e)[:160])
-            time.sleep(0.08)                             # let echoes die down before the next ping
-        time.sleep(DIST["interval"])
+                dev.close()
+            except Exception:
+                pass
+
+
+def start_distance_reader():
+    """Start the GPIO reader if it isn't already running (safe to call repeatedly)."""
+    with _dist_runner["lock"]:
+        t = _dist_runner["thread"]
+        if t and t.is_alive():
+            return
+        _dist_runner["stop"] = threading.Event()
+        t = threading.Thread(target=_distance_reader, args=(_dist_runner["stop"],), daemon=True,
+                             name="distance-reader")
+        _dist_runner["thread"] = t
+        t.start()
+
+
+def stop_distance_reader(timeout: float = 3.0):
+    """Stop the reader and wait for it to release the GPIO pins."""
+    with _dist_runner["lock"]:
+        t = _dist_runner["thread"]
+        _dist_runner["stop"].set()
+    if t and t.is_alive() and t is not threading.current_thread():
+        t.join(timeout)
 
 
 def distance_public() -> dict:
@@ -1417,9 +1486,13 @@ def start_mqtt_client(broker_host="127.0.0.1", broker_port=1883, topic="wyzesens
 # phone. Apple Home can't do this without a home hub. Sending happens on a
 # background thread with retries, so a slow or missing internet connection never
 # delays the door.
+# Notification icon for ntfy on Android (iPhone always shows the ntfy app's icon).
+# Must be a public address so it also works away from home: the Halo icon in the
+# project's public GitHub repository.
+DEFAULT_ICON_URL = "https://raw.githubusercontent.com/Izem07/Garage-Door-Opener-Cloner/main/web/icon-192.png"
 NOTIFY = {"enabled": False, "server": "https://ntfy.sh", "topic": None,
           "left_open_minutes": 10, "app_url": None,
-          "on_open": True, "on_close": True}
+          "on_open": True, "on_close": True, "icon_url": DEFAULT_ICON_URL}
 _notify_lock = threading.Lock()
 
 
@@ -1428,12 +1501,14 @@ def notify_public() -> dict:
         n = dict(NOTIFY)
     n["subscribe_url"] = f"{n['server'].rstrip('/')}/{n['topic']}" if n["topic"] else None
     n["status"] = dict(NOTIFY_STATUS)
+    n["push"] = push_public()
+    n["ntfy"] = n.get("ntfy", True)
     return n
 
 
 def configure_notifications(**changes) -> dict:
     with _notify_lock:
-        for k in ("enabled", "on_open", "on_close"):
+        for k in ("enabled", "on_open", "on_close", "ntfy"):
             if k in changes and isinstance(changes[k], bool):
                 NOTIFY[k] = changes[k]
         if "left_open_minutes" in changes:
@@ -1509,8 +1584,8 @@ def _explain(err: Exception) -> str:
     return msg[:160]
 
 
-def _deliver(url: str, data: bytes, headers: dict):
-    """One delivery attempt. Returns None on success or an error message."""
+def _post_bytes(url: str, data: bytes, headers: dict):
+    """POST once. Returns (http_status or None, error text or None)."""
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     for ctx in (None, "clean"):
         try:
@@ -1518,15 +1593,104 @@ def _deliver(url: str, data: bytes, headers: dict):
             if ctx == "clean" and c is None:
                 break
             with urllib.request.urlopen(req, timeout=8, context=c) as r:
-                return None if r.status < 300 else f"HTTP {r.status}"
+                return r.status, (None if r.status < 300 else f"HTTP {r.status}")
         except urllib.error.HTTPError as e:
-            return _explain(e)
+            return e.code, _explain(e)
         except Exception as e:
             if ctx is None and "CERTIFICATE_VERIFY_FAILED" in str(getattr(e, "reason", e)) \
                     and time.gmtime().tm_year >= 2024:
                 continue                                # retry with expired roots removed
-            return _explain(e)
-    return "Secure connection to the alert server failed (certificate problem)"
+            return None, _explain(e)
+    return None, "Secure connection to the alert server failed (certificate problem)"
+
+
+def _deliver(url: str, data: bytes, headers: dict):
+    """One ntfy delivery attempt. Returns None on success or an error message."""
+    return _post_bytes(url, data, headers)[1]
+
+
+# ── Halo notifications (Web Push) ──────────────────────────────────────────────
+# Alerts that come from the Halo app itself, with the Halo icon: iPhone (Halo on
+# the Home Screen, opened over HTTPS), Android and desktop browsers. Sent next to
+# ntfy, not instead of it. See webpush.py for the encryption.
+PUSH_KEY_FILE = os.path.join(BASE_DIR, "halo_vapid.pem")
+PUSH_SUBS_FILE = os.path.join(BASE_DIR, "push_subscriptions.json")
+PUSH = {"vapid": None, "error": None, "subs": [], "subject": "mailto:halo@example.com"}
+_push_lock = threading.Lock()
+
+
+def init_push():
+    try:
+        import webpush
+        PUSH["vapid"] = webpush.Vapid(PUSH_KEY_FILE)
+        PUSH["error"] = None
+    except ImportError:
+        PUSH["error"] = ("Halo notifications need the 'cryptography' package. On the Pi run: "
+                         "sudo apt install python3-cryptography")
+    except Exception as e:
+        PUSH["error"] = f"Couldn't set up Halo notifications: {e}"
+    try:
+        with open(PUSH_SUBS_FILE, encoding="utf-8") as f:
+            PUSH["subs"] = [x for x in json.load(f) if isinstance(x, dict) and x.get("endpoint")]
+    except (OSError, ValueError):
+        PUSH["subs"] = []
+
+
+def _save_push_subs():
+    tmp = PUSH_SUBS_FILE + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(PUSH["subs"], f, indent=2)
+    os.replace(tmp, PUSH_SUBS_FILE)
+
+
+def add_push_subscription(sub: dict, device: str):
+    endpoint = str(sub.get("endpoint", ""))
+    keys = sub.get("keys") or {}
+    u = urlparse(endpoint)
+    local_test = u.hostname in ("127.0.0.1", "localhost")
+    if not (u.scheme == "https" or local_test) or not keys.get("p256dh") or not keys.get("auth"):
+        raise ValueError("Not a valid push subscription")
+    with _push_lock:
+        PUSH["subs"] = [x for x in PUSH["subs"] if x["endpoint"] != endpoint]
+        PUSH["subs"].append({"endpoint": endpoint, "keys": {"p256dh": keys["p256dh"], "auth": keys["auth"]},
+                             "device": (device or "Device")[:40], "added": _now_iso()})
+        _save_push_subs()
+    add_log("Notifications", f"Halo notifications turned on for {device or 'a device'}", True)
+
+
+def remove_push_subscription(endpoint: str, reason: str = None):
+    with _push_lock:
+        before = len(PUSH["subs"])
+        gone = [x for x in PUSH["subs"] if x["endpoint"] == endpoint]
+        PUSH["subs"] = [x for x in PUSH["subs"] if x["endpoint"] != endpoint]
+        if len(PUSH["subs"]) != before:
+            _save_push_subs()
+    if gone:
+        add_log("Notifications", f"Halo notifications removed for {gone[0]['device']}"
+                + (f" ({reason})" if reason else ""), True)
+    notify_change()
+
+
+def push_public() -> dict:
+    with _push_lock:
+        devices = [{"device": x["device"], "added": x["added"]} for x in PUSH["subs"]]
+    return {"available": PUSH["vapid"] is not None, "error": PUSH["error"],
+            "public_key": PUSH["vapid"].public_key if PUSH["vapid"] else None, "devices": devices}
+
+
+def _send_push_one(sub: dict, payload: dict, urgency: str):
+    """Returns None on success or an error text. Expired subscriptions are removed."""
+    import webpush
+    try:
+        url, body, headers = webpush.build_request(sub, payload, PUSH["vapid"], PUSH["subject"], urgency=urgency)
+    except Exception as e:
+        return f"Couldn't encrypt: {e}"
+    status, err = _post_bytes(url, body, headers)
+    if status in (404, 410):                            # the phone unsubscribed or the app was removed
+        remove_push_subscription(sub["endpoint"], "no longer subscribed")
+        return "Device is no longer subscribed"
+    return err
 
 
 def send_notification(title: str, message: str, priority: str = "default",
@@ -1540,13 +1704,20 @@ def send_notification(title: str, message: str, priority: str = "default",
     """
     with _notify_lock:
         n = dict(NOTIFY)
-    if not n["topic"] or not (n["enabled"] or force):
+    if not (n["enabled"] or force):
         return "Door alerts are off"
+    with _push_lock:
+        push_subs = list(PUSH["subs"]) if PUSH["vapid"] else []
+    use_ntfy = bool(n["topic"]) and n.get("ntfy", True)
+    if not use_ntfy and not push_subs:
+        return "No way to deliver alerts yet: subscribe in ntfy, or turn on Halo notifications on a device"
     # Plain text only: no Tags (ntfy shows them as emoji), no Markdown, and no
     # Priority header (ntfy marks high/urgent alerts with icons). ASCII only.
     title = title.encode("ascii", "replace").decode()
     message = message.encode("ascii", "replace").decode()
     headers = {"Title": title, "User-Agent": "Halo/2.0"}
+    if n.get("icon_url"):
+        headers["Icon"] = n["icon_url"]                 # Halo icon on Android
     if n["app_url"]:
         headers["Click"] = n["app_url"]
         if close_action:
@@ -1555,6 +1726,22 @@ def send_notification(title: str, message: str, priority: str = "default",
             headers["Actions"] = f"http, Keep Open, {n['app_url']}/api/auto-close/hold, method=POST, clear=true"
     url = f"{n['server']}/{n['topic']}"
     data = message.encode("utf-8")
+    payload = {"title": title, "body": message, "url": "/", "tag": "halo-door", "actions": []}
+    if close_action:
+        payload["actions"].append({"action": "close", "title": "Close Door", "url": "/api/close?source=Notification"})
+    if keep_open_action:
+        payload["actions"].append({"action": "keep", "title": "Keep Open", "url": "/api/auto-close/hold"})
+    urgency = "high" if (close_action or keep_open_action) else "normal"
+
+    def send_all():
+        """Every channel once. Returns (results, first error or None if anything got through)."""
+        results = {}
+        if use_ntfy:
+            results["ntfy"] = _deliver(url, data, headers)
+        for sub in push_subs:
+            results[sub.get("device", "Device")] = _send_push_one(sub, payload, urgency)
+        ok = any(v is None for v in results.values())
+        return results, (None if ok else next(iter(results.values()), "No channel"))
 
     def record(err):
         if err is None:
@@ -1564,7 +1751,8 @@ def send_notification(title: str, message: str, priority: str = "default",
         notify_change()
 
     if wait:
-        err = _deliver(url, data, headers)
+        results, err = send_all()
+        NOTIFY_STATUS["last_results"] = results
         record(err)
         if err:
             logger.warning(f"[Notify] {title}: {err}")
@@ -1574,8 +1762,9 @@ def send_notification(title: str, message: str, priority: str = "default",
         err = None
         for delay in (0, 5, 15, 40):
             time.sleep(delay)
-            err = _deliver(url, data, headers)
-            if err is None or "rejected" in err:       # delivered, or a permanent error
+            results, err = send_all()
+            NOTIFY_STATUS["last_results"] = results
+            if err is None or "rejected" in err:       # delivered somewhere, or a permanent error
                 break
             logger.info(f"[Notify] {title}: {err}; retrying")
         record(err)
@@ -1741,6 +1930,8 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
             return self.send_json(build_status(self.remote_mgr, self.radio))
         if path == "/api/events":
             return self.handle_events()
+        if path == "/api/push/key":
+            return self.send_json(push_public())
         if path == "/api/logs":
             return self.send_json({"logs": list(activity_log)})
         self.serve_static(path)
@@ -1776,6 +1967,8 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
             "/api/distance/calibrate": self.handle_distance_calibrate,
             "/api/distance/settings": self.handle_distance_settings,
             "/api/sensors/pair": self.handle_sensors_pair,
+            "/api/push/subscribe": self.handle_push_subscribe,
+            "/api/push/unsubscribe": self.handle_push_unsubscribe,
             "/api/sensors/assign": self.handle_sensors_assign,
             "/api/sensors/remove": self.handle_sensors_remove,
             "/api/bridge/restart": self.handle_bridge_restart,
@@ -1810,7 +2003,7 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
             return
 
         cache = "no-cache" if ctype.startswith(("text/html", "application/manifest", "application/json")) \
-            else "public, max-age=86400"
+            or rel == "sw.js" else "public, max-age=86400"
         if self.headers.get("If-None-Match") == etag:
             self.send_response(304)
             self.send_header("ETag", etag)
@@ -1897,7 +2090,7 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
     def handle_notifications(self, data: dict):
         try:
             n = configure_notifications(**{k: v for k, v in data.items() if k in (
-                "enabled", "server", "topic", "left_open_minutes", "app_url", "on_open", "on_close")})
+                "enabled", "server", "topic", "left_open_minutes", "app_url", "on_open", "on_close", "ntfy")})
         except (ValueError, TypeError) as e:
             return self.send_json({"success": False, "error": str(e)}, 400)
         add_log("Notifications", "Door alerts on" if n["enabled"] else "Door alerts off", True)
@@ -1910,9 +2103,14 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
             return self.send_json({"success": False, "error": "Turn on door alerts first"}, 400)
         err = send_notification("Halo Test Notification",
                                 f"Garage door alerts are set up correctly. Sent at {fmt_clock()}.", wait=True)
+        results = NOTIFY_STATUS.get("last_results") or {}
         if err:
-            return self.send_json({"success": False, "error": err}, 502)
-        self.send_json({"success": True, "message": "Delivered to ntfy"})
+            return self.send_json({"success": False, "error": err, "results": results}, 502)
+        got = [k for k, v in results.items() if v is None]
+        failed = {k: v for k, v in results.items() if v is not None}
+        msg = "Delivered to " + ", ".join(got) + (". Failed: " + "; ".join(f"{k}: {v}" for k, v in failed.items())
+                                                  if failed else ".")
+        self.send_json({"success": True, "message": msg, "results": results})
 
     def handle_logs_clear(self, data: dict):
         activity_log.clear()
@@ -1957,18 +2155,21 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
     def handle_distance_settings(self, data: dict):
         try:
             if isinstance(data.get("enabled"), bool):
-                was = DIST["enabled"]
                 DIST["enabled"] = data["enabled"]
-                if DIST["enabled"] and not was:
-                    threading.Thread(target=_distance_reader, daemon=True).start()
-                if not DIST["enabled"]:
-                    DIST_INFO.update(status="off", present=None, committed=None)
+                if DIST["enabled"]:
+                    start_distance_reader()                       # no-op if already running
+                else:
+                    stop_distance_reader()                        # releases the GPIO pins
+                    DIST_INFO.update(status="off", present=None, committed=None, error=None)
             for k, lo, hi in (("min_height_cm", 10, 250), ("min_width_cm", 30, 400), ("stable_seconds", 0, 600)):
                 if data.get(k) is not None:
                     DIST[k] = max(lo, min(hi, float(data[k])))
                     DIST_INFO.update(present=None, since=time.time())
             if isinstance(data.get("sensors"), list):
                 DIST["sensors"] = [dict(x) for x in data["sensors"] if isinstance(x, dict) and x.get("id")]
+                if DIST["enabled"]:                               # reopen with the new pins
+                    stop_distance_reader()
+                    start_distance_reader()
         except (TypeError, ValueError) as e:
             return self.send_json({"success": False, "error": str(e)}, 400)
         save_distance_settings()
@@ -1989,6 +2190,24 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
                 return self.send_json({"success": False, "error": str(e)}, 400)
             notify_change()
         self.send_json({"success": True, "timezone": tz_public()})
+
+    def handle_push_subscribe(self, data: dict):
+        if not PUSH["vapid"]:
+            return self.send_json({"success": False, "error": PUSH["error"] or "Not available"}, 503)
+        try:
+            add_push_subscription(data.get("subscription") or {}, str(data.get("device") or "Device"))
+        except ValueError as e:
+            return self.send_json({"success": False, "error": str(e)}, 400)
+        with _notify_lock:
+            needs_on = not NOTIFY["enabled"]
+        if needs_on:
+            configure_notifications(enabled=True)
+        notify_change()
+        self.send_json({"success": True, "push": push_public()})
+
+    def handle_push_unsubscribe(self, data: dict):
+        remove_push_subscription(str(data.get("endpoint") or ""))
+        self.send_json({"success": True, "push": push_public()})
 
     def handle_sensors_pair(self, data: dict):
         try:
@@ -2203,6 +2422,7 @@ def build_status(remote_mgr: RemoteManager, radio: CC1101) -> dict:
         "app": APP_NAME,
         "timezone": tz_public(),
         "update": dict(UPDATE),
+        "https": dict(HTTPS_INFO),
         "server": {"pid": os.getpid(), "started_at": STARTED_AT, "uptime_s": int(time.monotonic() - _STARTED_MONO)},
         "app_build": _app_build(),
         "name": cfg.get("name", "Virtual Remote"),
@@ -2327,6 +2547,7 @@ def _code_watcher(server):
             logger.info("[Update] New code installed; restarting Halo")
             with state_lock:
                 save_door_state()
+            stop_distance_reader()                       # hand the GPIO pins back first
             # Replace this process in place. Don't close the server first: that makes the
             # main thread exit and race the restart. exec closes the listening socket itself.
             os.execv(sys.executable, [sys.executable] + sys.argv)
@@ -2435,6 +2656,87 @@ def _bind_http(host: str, port: int):
             raise SystemExit(1)
 
 
+# Halo notifications on iPhone only work on an HTTPS page. Halo serves the same app
+# over HTTPS on a second port, using a certificate from Tailscale (free, trusted by
+# iPhones): sudo tailscale cert ... (see README). Plain HTTP on 8080 stays as is.
+HTTPS = {"enabled": True, "port": 8443, "cert_file": os.path.join(BASE_DIR, "halo.crt"),
+         "key_file": os.path.join(BASE_DIR, "halo.key")}
+HTTPS_INFO = {"running": False, "url": None, "expires": None, "error": None}
+
+
+class _TLSServer(ThreadingHTTPServer):
+    """HTTPS server; the TLS handshake runs in each request's own thread, so one slow
+    or broken client can't hold up the others."""
+    ssl_ctx = None
+
+    def get_request(self):
+        sock, addr = super().get_request()
+        sock.settimeout(15)
+        return self.ssl_ctx.wrap_socket(sock, server_side=True, do_handshake_on_connect=False), addr
+
+    def handle_error(self, request, client_address):
+        pass                                            # failed handshakes (e.g. http:// on the https port)
+
+
+def _cert_details(path: str):
+    """(hostname, expiry text) from a certificate file, or (None, None)."""
+    try:
+        info = ssl._ssl._test_decode_cert(path)
+        names = [v for k, v in info.get("subjectAltName", ()) if k == "DNS"]
+        return (names[0] if names else None), info.get("notAfter")
+    except Exception:
+        return None, None
+
+
+def start_https(handler):
+    cert, key = HTTPS["cert_file"], HTTPS["key_file"]
+    if not HTTPS["enabled"]:
+        return
+    if not (os.path.exists(cert) and os.path.exists(key)):
+        HTTPS_INFO.update(running=False, error=None)
+
+        def wait_for_cert():                            # certificate created later: start HTTPS then
+            while not (os.path.exists(cert) and os.path.exists(key)):
+                time.sleep(30)
+            time.sleep(2)                               # let both files finish writing
+            start_https(handler)
+        threading.Thread(target=wait_for_cert, daemon=True).start()
+        return
+    try:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_cert_chain(cert, key)
+        _TLSServer.allow_reuse_address = True
+        _TLSServer.daemon_threads = True
+        _TLSServer.ssl_ctx = ctx
+        srv = _TLSServer(("0.0.0.0", int(HTTPS["port"])), handler)
+    except Exception as e:
+        HTTPS_INFO.update(running=False, error=f"HTTPS couldn't start: {e}")
+        logger.error(HTTPS_INFO["error"])
+        return
+    host, expires = _cert_details(cert)
+    HTTPS_INFO.update(running=True, error=None, expires=expires,
+                      url=f"https://{host}:{HTTPS['port']}" if host else None)
+    threading.Thread(target=srv.serve_forever, daemon=True, name="https").start()
+    logger.info(f"[HTTPS] Serving on port {HTTPS['port']} ({host or 'certificate has no hostname'})")
+
+    def watch_cert():                                   # renewed certificate: use it without a restart
+        stamp = (os.path.getmtime(cert), os.path.getmtime(key))
+        while True:
+            time.sleep(60)
+            try:
+                now = (os.path.getmtime(cert), os.path.getmtime(key))
+                if now != stamp:
+                    time.sleep(2)
+                    ctx.load_cert_chain(cert, key)
+                    stamp = now
+                    HTTPS_INFO["expires"] = _cert_details(cert)[1]
+                    logger.info("[HTTPS] Reloaded renewed certificate")
+            except Exception as e:
+                HTTPS_INFO["error"] = f"Couldn't load the renewed certificate: {e}"
+    threading.Thread(target=watch_cert, daemon=True).start()
+
+
 def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
                spi_bus: int = 0, spi_device: int = 0,
                tx_mode: str = "fifo", gdo0_gpio: int = 24):
@@ -2457,6 +2759,8 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
     if not tz_database_ok():
         logger.warning("[Time] No time-zone database found; install it with: sudo apt install tzdata "
                        "(or pip install tzdata). Times fall back to UTC until then.")
+    init_push()
+    PUSH["subject"] = str(remote_mgr.config.get("push_subject") or PUSH["subject"])
     saved_n = remote_mgr.config.get("notifications") or {}
     with _notify_lock:
         NOTIFY.update({k: v for k, v in saved_n.items() if k in NOTIFY})
@@ -2466,7 +2770,7 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
     threading.Thread(target=_bridge_watchdog, daemon=True).start()
     DIST.update({k: v for k, v in (remote_mgr.config.get("distance_sensor") or {}).items() if k in DIST})
     if DIST["enabled"]:
-        threading.Thread(target=_distance_reader, daemon=True).start()
+        start_distance_reader()
     threading.Thread(target=_auto_close_worker, daemon=True).start()
     CTX.update(remote_mgr=remote_mgr, radio=radio)
     threading.Thread(target=check_radio, daemon=True).start()          # health check at startup
@@ -2525,12 +2829,15 @@ def run_server(host: str = "0.0.0.0", port: int = 8080, config_path: str = None,
     add_log("Halo", f"Server started on port {port}", success=True)
 
     UPDATE["auto_restart"] = bool(remote_mgr.config.get("auto_restart_on_update", True))
+    HTTPS.update({k: v for k, v in (remote_mgr.config.get("https") or {}).items() if k in HTTPS})
+    start_https(HaloRequestHandler)
     threading.Thread(target=_code_watcher, args=(server,), daemon=True).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
         print("\nStopping Halo...")
     finally:
+        stop_distance_reader()
         server.server_close()
         radio.close()
 

@@ -470,6 +470,7 @@ button.row:active,a.row:active{background:var(--fill)}
     <div class="group-h" id="notifySec">Door Alerts</div>
     <div class="list">
       <div class="row"><span class="lbl">Notify Me<small>Garage door only</small></span><label class="switch"><input type="checkbox" id="nEnabled" onchange="setNotify({enabled: this.checked})"></label></div>
+      <div class="row nmore"><span class="lbl">Send to ntfy<small>Keep ntfy alongside Halo notifications</small></span><label class="switch"><input type="checkbox" id="nNtfy" onchange="setNotify({ntfy: this.checked})"></label></div>
       <div class="row nmore"><span class="lbl">When Opened</span><label class="switch"><input type="checkbox" id="nOpen" onchange="setNotify({on_open: this.checked})"></label></div>
       <div class="row nmore"><span class="lbl">When Closed</span><label class="switch"><input type="checkbox" id="nClose" onchange="setNotify({on_close: this.checked})"></label></div>
       <div class="row nmore" style="display:block;padding:10px 16px 6px"><span style="display:block">Left-Open Reminder</span>
@@ -480,7 +481,14 @@ button.row:active,a.row:active{background:var(--fill)}
       <button class="row nmore tint" onclick="testNotify()"><span class="lbl">Send Test Notification</span></button>
     </div>
     <div class="group-f bad" id="nError" hidden></div>
-    <div class="group-f" id="nNote">Get a notification when the garage door opens, closes or is left open. Uses the free <b>ntfy</b> app (Apple Home needs a home hub for notifications).</div>
+    <div class="group-f" id="nNote">Get a notification when the garage door opens, closes or is left open: from Halo itself (below) and/or the free <b>ntfy</b> app.</div>
+
+    <div class="group-h" id="pushSec">Halo Notifications</div>
+    <div class="list">
+      <div class="row"><span class="lbl">On This Device<small>Alerts from Halo itself, with the Halo icon</small></span><label class="switch"><input type="checkbox" id="pushThis" onchange="togglePush(this.checked)"></label></div>
+      <div class="row"><span class="lbl">Devices</span><span class="val" id="pushDevices">None yet</span></div>
+    </div>
+    <div class="group-f" id="pushNote">Turn this on on each phone that should get Halo notifications.</div>
 
     <div class="group-h" id="tzSec">Date &amp; Time</div>
     <div class="list">
@@ -849,8 +857,87 @@ function setNotify(changes) {
     Object.fromEntries(Object.entries(changes).map(([k, v]) => ["notifications." + k, v])));
 }
 $("nLeftSeg").onclick = e => e.target.dataset.v && setNotify({ left_open_minutes: +e.target.dataset.v });
-const testNotify = () => act(() => api("/api/notifications/test", { app_url: location.origin }),
-  "Delivered. Check the ntfy app on your phone.");
+const testNotify = () => act(() => api("/api/notifications/test", { app_url: location.origin }), r => r.message);
+
+// ── Halo notifications (Web Push) ────────────────────
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const isStandalone = matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+function deviceName() {
+  const ua = navigator.userAgent;
+  return /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) || isIOS ? "iPad" : /Android/.test(ua) ? "Android phone"
+    : /Mac/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows PC" : "Device";
+}
+function pushBlocker() {
+  const p = S && S.notifications && S.notifications.push;
+  if (!p) return "Loading...";
+  if (!p.available) return p.error || "Halo notifications aren't available on this Halo.";
+  if (!window.isSecureContext) {
+    const url = S.https && S.https.url;
+    return url ? `Open Halo at ${url} (on iPhone, add that page to your Home Screen) to turn this on.`
+               : "Halo notifications need HTTPS. Set up the Tailscale certificate (README: Halo Notifications).";
+  }
+  if (isIOS && !isStandalone) return "On iPhone: tap Share, then Add to Home Screen, open Halo from the Home Screen, and turn this on there.";
+  if (!("serviceWorker" in navigator) || !("PushManager" in window) || !window.Notification)
+    return "This browser doesn't support web notifications.";
+  return null;
+}
+let swReg = null;
+async function registerSW() {
+  if (!window.isSecureContext || !("serviceWorker" in navigator)) return null;
+  try { swReg = await navigator.serviceWorker.register("/sw.js"); } catch (e) { swReg = null; }
+  return swReg;
+}
+registerSW().then(refreshPushSwitch);
+async function currentSub() {
+  try { return swReg && swReg.pushManager ? await swReg.pushManager.getSubscription() : null; } catch (e) { return null; }
+}
+async function refreshPushSwitch() {
+  const sub = await currentSub();
+  $("pushThis").checked = !!sub && window.Notification && Notification.permission === "granted";
+}
+function keyBytes(b64) {
+  const s = (b64 + "===".slice((b64.length + 3) % 4)).replace(/-/g, "+").replace(/_/g, "/");
+  return Uint8Array.from(atob(s), c => c.charCodeAt(0));
+}
+async function togglePush(on) {
+  const sw = $("pushThis");
+  if (on) {
+    const why = pushBlocker();
+    if (why) { sw.checked = false; return toast(why, false); }
+    // iPhone only shows the permission prompt if it's asked straight from the tap.
+    const perm = Notification.permission === "granted" ? "granted" : await Notification.requestPermission();
+    if (perm !== "granted") {
+      sw.checked = false;
+      return toast("Notifications are blocked for Halo. Allow them in Settings, Notifications, Halo.", false);
+    }
+    try {
+      const reg = swReg || await registerSW();
+      await navigator.serviceWorker.ready;
+      const key = keyBytes(S.notifications.push.public_key);
+      let sub;
+      try { sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key }); }
+      catch (e) {                                   // subscribed earlier with another key: renew
+        const old = await reg.pushManager.getSubscription();
+        if (!old) throw e;
+        await old.unsubscribe();
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+      }
+      await api("/api/push/subscribe", { subscription: sub.toJSON(), device: deviceName() });
+      toast(`Halo notifications are on for this ${deviceName()}.`);
+    } catch (e) {
+      sw.checked = false;
+      toast(e.message || "Couldn't turn on Halo notifications.", false);
+    }
+  } else {
+    const sub = await currentSub();
+    if (sub) {
+      await api("/api/push/unsubscribe", { endpoint: sub.endpoint }).catch(() => {});
+      await sub.unsubscribe().catch(() => {});
+    }
+    toast("Halo notifications are off for this device.");
+  }
+}
+
 function copyTopic() {
   const t = S && S.notifications && S.notifications.topic;
   if (!t) return;
@@ -1155,6 +1242,13 @@ function render(d) {
   // Door alerts
   const n = d.notifications || {};
   $("nEnabled").checked = !!n.enabled;
+  $("nNtfy").checked = n.ntfy !== false;
+  const pushInfo = n.push || {};
+  const devs = pushInfo.devices || [];
+  put("pushDevices", "text", devs.length ? devs.map(x => x.device).join(", ") : "None yet");
+  const blocker = pushBlocker();
+  put("pushNote", "text", blocker && !$("pushThis").checked ? blocker
+    : "Each phone that turns this on gets alerts from Halo, with the Halo icon. ntfy keeps working too.");
   $("nOpen").checked = n.on_open !== false;
   $("nClose").checked = n.on_close !== false;
   $("nEnabled").closest(".list").classList.toggle("notify-on", !!n.enabled);

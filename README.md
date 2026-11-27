@@ -477,6 +477,49 @@ You can switch "When Opened" and "When Closed" off and keep only the left-open r
 
 ---
 
+## Halo Notifications (with the Halo icon)
+
+ntfy alerts always show the **ntfy** icon on iPhone, because iOS doesn't let an app change it. (On Android, ntfy alerts do show the Halo icon.) For alerts that come from **Halo itself**, with the Halo icon and "Halo" as the sender, turn on Halo notifications. Both run side by side: every door alert goes to ntfy **and** to every device with Halo notifications on. You can turn ntfy off in **Device > Door Alerts > Send to ntfy** if you only want Halo's own alerts.
+
+iPhones only allow notifications from web apps that are **added to the Home Screen** and opened over **HTTPS**. Halo gets a free trusted certificate from Tailscale and serves the same app over HTTPS on port **8443**. Plain HTTP on 8080 keeps working exactly as before, for Homebridge and local use.
+
+### One-time setup
+1. **Tailscale admin console** (login.tailscale.com > DNS): turn on **MagicDNS** and **HTTPS Certificates**.
+2. **On the Pi**, find the Pi's Tailscale name (it looks like `garagemodule.tail1234.ts.net`):
+   ```bash
+   tailscale status --self --json | grep -m1 DNSName
+   ```
+3. **Create the certificate** next to Halo (replace the name with yours) and let Halo read it:
+   ```bash
+   cd ~/Garage-Door-Opener-Cloner
+   sudo tailscale cert --cert-file halo.crt --key-file halo.key garagemodule.tail1234.ts.net
+   sudo chown izem07: halo.crt halo.key
+   ```
+   Halo notices the certificate within 30 seconds and starts HTTPS. No restart needed.
+4. **Encryption library** (usually already installed on Raspberry Pi OS):
+   ```bash
+   sudo apt install python3-cryptography
+   ```
+5. **On the iPhone**, with Tailscale connected:
+   1. Open `https://garagemodule.tail1234.ts.net:8443` in Safari.
+   2. Tap **Share > Add to Home Screen**, then open **Halo from the Home Screen**.
+   3. Go to **Device > Halo Notifications > On This Device**, and tap **Allow**.
+   4. Tap **Send Test Notification**.
+
+   On Android or a computer, just open the same address in Chrome and turn the switch on.
+
+### Good to know
+* **The certificate lasts 90 days.** Renew it monthly with a root cron job (`sudo crontab -e`). Halo reloads the new certificate by itself:
+  ```text
+  0 3 1 * * cd /home/izem07/Garage-Door-Opener-Cloner && tailscale cert --cert-file halo.crt --key-file halo.key garagemodule.tail1234.ts.net && chown izem07: halo.crt halo.key
+  ```
+* **The HTTPS address works wherever Tailscale is connected** on the phone, so keep Tailscale on (VPN On Demand: *Always*) for the Home Screen app. Alerts themselves arrive through Apple's or Google's push service, even when Tailscale is off. The plain `http://<pi-ip>:8080` address still works on home Wi-Fi without Tailscale.
+* **Buttons:** Close Door and Keep Open appear on Android and desktop. On iPhone, tapping the alert opens Halo instead (iOS doesn't show web app buttons).
+* **Devices** lists every phone that turned this on. If a phone removes the Home Screen app or turns notifications off, Halo forgets it automatically.
+* Halo signs its alerts with its own key (`halo_vapid.pem`) and keeps the list of devices in `push_subscriptions.json`. Both stay on the Pi and are never committed.
+
+---
+
 ## Date & Time
 
 **Device → Date & Time → Time Zone** picks the zone Halo shows times in. It defaults to **New York (Eastern)**, and **This device** is offered at the top of the list.
@@ -570,7 +613,10 @@ Global flags: `--config`, `--spi-bus`, `--spi-device`, `--mode fifo|async`, `--g
 | `/api/light` | POST | `{"source": "Halo app"}` | Press the light button. Always a toggle; the reply's `light_on` is only an estimate |
 | `/api/light/state` | POST | `{"on": true}` | Report light state from an external sensor (no RF) |
 | `/api/notifications` | POST | `{"enabled": true, "left_open_minutes": 10}` | Door alert settings (also `on_open`, `on_close`, `server`, `topic`) |
-| `/api/notifications/test` | POST | — | Send a test alert |
+| `/api/notifications/test` | POST | — | Send a test alert to every channel and report each result |
+| `/api/push/key` | GET | — | Halo's public key for Halo notifications |
+| `/api/push/subscribe` | POST | `{"subscription": {...}, "device": "iPhone"}` | Turn on Halo notifications for a device |
+| `/api/push/unsubscribe` | POST | `{"endpoint": "..."}` | Turn them off for a device |
 | `/api/settings` | POST | `{"timezone": "America/Chicago", "clock_24h": true}` | Time zone and 24-hour time |
 | `/api/radio/check` | POST | — | Read the CC1101 (identity, frequency, state) and report whether it's healthy |
 | `/api/logs/clear` | POST | — | Clear the activity list |
