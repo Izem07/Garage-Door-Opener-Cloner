@@ -97,19 +97,70 @@ class ChamberlainCC1101Accessory {
     } catch (e) {
       this.log.warn(`[${this.name}] File watch failed: ${e.message}`);
     }
+
+    // Periodic HTTP sync fallback if running in API bridge mode
+    if (this.apiUrl) {
+      setInterval(() => {
+        if (this.operatingTimer) return;
+        this._sendHttpRequest("/api/status", "GET", (err, data) => {
+          if (err) return;
+          try {
+            const parsed = JSON.parse(data);
+            const doorStateStr = parsed.door && parsed.door.state;
+            if (doorStateStr && (doorStateStr === "OPEN" || doorStateStr === "CLOSED")) {
+              const isOpen = doorStateStr === "OPEN";
+              const newCurrentState = isOpen
+                ? Characteristic.CurrentDoorState.OPEN
+                : Characteristic.CurrentDoorState.CLOSED;
+              const newTargetState = isOpen
+                ? Characteristic.TargetDoorState.OPEN
+                : Characteristic.TargetDoorState.CLOSED;
+
+              if (this.currentDoorState !== newCurrentState) {
+                this.currentDoorState = newCurrentState;
+                this.targetDoorState = newTargetState;
+                this.service
+                  .getCharacteristic(Characteristic.CurrentDoorState)
+                  .updateValue(this.currentDoorState);
+                this.service
+                  .getCharacteristic(Characteristic.TargetDoorState)
+                  .updateValue(this.targetDoorState);
+                this.log.info(
+                  `[${this.name}] Ground-truth sensor synced door state to: ${doorStateStr}`
+                );
+              }
+            }
+
+            if (parsed.light && typeof parsed.light.on === "boolean") {
+              if (this.lightOn !== parsed.light.on) {
+                this.lightOn = parsed.light.on;
+                this.lightService
+                  .getCharacteristic(Characteristic.On)
+                  .updateValue(this.lightOn);
+              }
+            }
+          } catch (e) {}
+        });
+      }, 3000);
+    }
   }
 
   getServices() {
     return [this.infoService, this.service, this.lightService];
   }
 
-  _sendHttpRequest(endpoint, callback) {
+  _sendHttpRequest(endpoint, method, callback) {
+    if (typeof method === "function") {
+      callback = method;
+      method = "POST";
+    }
+    const httpMethod = (method || "POST").toUpperCase();
     const url = new URL(endpoint, this.apiUrl);
     const options = {
       hostname: url.hostname,
       port: url.port || 80,
       path: url.pathname,
-      method: "POST",
+      method: httpMethod,
       headers: {
         "Content-Type": "application/json",
       },
@@ -134,7 +185,9 @@ class ChamberlainCC1101Accessory {
       callback(new Error("HTTP request timed out"));
     });
 
-    req.write(JSON.stringify({}));
+    if (httpMethod === "POST") {
+      req.write(JSON.stringify({}));
+    }
     req.end();
   }
 

@@ -28,6 +28,7 @@ radio_lock = threading.Lock()
 
 # State file and thread safety
 STATE_FILE = os.path.join(BASE_DIR, "garage_state.json")
+DOCKER_STATE_FILE = "/var/lib/docker/volumes/homebridge_data/_data/garage_state.json"
 state_lock = threading.Lock()
 
 door_info = {
@@ -42,29 +43,37 @@ door_info = {
 
 def load_door_state():
     global door_info
-    if os.path.exists(STATE_FILE):
-        try:
-            with open(STATE_FILE, "r") as f:
-                saved = json.load(f)
-                door_info["state"] = saved.get("doorState", saved.get("state", "CLOSED"))
-                door_info["percent"] = 100 if door_info["state"] == "OPEN" else 0
-                door_info["light_on"] = saved.get("lightOn", saved.get("light_on", False))
-                door_info["locked"] = saved.get("locked", False)
-        except Exception as e:
-            logger.warning(f"Could not load state from {STATE_FILE}: {e}")
+    # Try local state file first, then docker state file
+    target_files = [STATE_FILE, DOCKER_STATE_FILE]
+    for sf in target_files:
+        if os.path.exists(sf):
+            try:
+                with open(sf, "r") as f:
+                    saved = json.load(f)
+                    door_info["state"] = saved.get("doorState", saved.get("state", "CLOSED"))
+                    door_info["percent"] = 100 if door_info["state"] == "OPEN" else 0
+                    door_info["light_on"] = saved.get("lightOn", saved.get("light_on", False))
+                    door_info["locked"] = saved.get("locked", False)
+                    break
+            except Exception as e:
+                logger.warning(f"Could not load state from {sf}: {e}")
 
 def save_door_state():
-    try:
-        with open(STATE_FILE, "w") as f:
-            json.dump({
-                "doorState": door_info["state"],
-                "percent": door_info["percent"],
-                "lightOn": door_info["light_on"],
-                "locked": door_info["locked"],
-                "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-            }, f, indent=2)
-    except Exception as e:
-        logger.warning(f"Could not save state to {STATE_FILE}: {e}")
+    state_payload = {
+        "doorState": door_info["state"],
+        "percent": door_info["percent"],
+        "lightOn": door_info["light_on"],
+        "locked": door_info["locked"],
+        "updatedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    for sf in (STATE_FILE, DOCKER_STATE_FILE):
+        try:
+            parent = os.path.dirname(sf)
+            if os.path.exists(parent):
+                with open(sf, "w") as f:
+                    json.dump(state_payload, f, indent=2)
+        except Exception as e:
+            logger.debug(f"Could not save state to {sf}: {e}")
 
 load_door_state()
 
@@ -96,15 +105,18 @@ def parse_sensor_payload(data):
 
 def start_mqtt_client(broker_host: str = "127.0.0.1", broker_port: int = 1883, topic: str = "wyzesense2mqtt/#"):
     """
-    Subscribes to local Mosquitto MQTT broker for Wyze Sense v1 sensor events.
+    Subscribes to local Mosquitto MQTT broker for Wyze Sense sensor events.
+    Compatible with both paho-mqtt v1 and v2.
     """
     try:
         import paho.mqtt.client as mqtt
     except ImportError:
-        logger.info("[MQTT] paho-mqtt not installed. Optional: run 'sudo apt install -y python3-paho-mqtt' on Pi to enable direct MQTT sensor listener.")
+        logger.info("[MQTT] paho-mqtt not installed. Optional: run 'sudo apt install -y python3-paho-mqtt' on Pi.")
         return
 
-    def on_connect(client, userdata, flags, rc):
+    def on_connect(*args, **kwargs):
+        # Compatible with paho-mqtt v1 (4 args) and v2 (5 args)
+        rc = args[3] if len(args) > 3 else 0
         if rc == 0:
             logger.info(f"[MQTT] Connected to broker {broker_host}:{broker_port}. Subscribing to {topic}")
             client.subscribe(topic)
@@ -115,11 +127,16 @@ def start_mqtt_client(broker_host: str = "127.0.0.1", broker_port: int = 1883, t
 
     def on_message(client, userdata, msg):
         try:
-            payload_str = msg.payload.decode("utf-8")
+            payload_str = msg.payload.decode("utf-8").strip()
+            data = {}
             try:
                 data = json.loads(payload_str)
             except Exception:
-                data = {"state": payload_str}
+                try:
+                    import ast
+                    data = ast.literal_eval(payload_str)
+                except Exception:
+                    data = {"state": payload_str}
 
             is_open = parse_sensor_payload(data)
             if is_open is not None:
@@ -131,14 +148,17 @@ def start_mqtt_client(broker_host: str = "127.0.0.1", broker_port: int = 1883, t
 
                 st_str = "OPEN" if is_open else "CLOSED"
                 dev_id = data.get("mac", msg.topic.split("/")[-1])
-                msg_txt = f"Wyze Sensor ({dev_id}) ground-truth: {st_str}"
+                msg_txt = f"Wyze Ground-Truth Sensor ({dev_id}) reported: {st_str}"
                 add_log("Sensor Update", msg_txt, success=True)
                 logger.info(f"[MQTT] {msg_txt}")
         except Exception as e:
             logger.error(f"[MQTT] Error processing message: {e}")
 
     try:
-        client = mqtt.Client(client_id="gdo_wyze_listener")
+        try:
+            client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="gdo_wyze_sync")
+        except AttributeError:
+            client = mqtt.Client(client_id="gdo_wyze_sync")
         client.on_connect = on_connect
         client.on_message = on_message
         client.connect_async(broker_host, broker_port, 60)
