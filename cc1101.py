@@ -237,7 +237,7 @@ class CC1101:
             REG_MDMCFG1:  0x00,  # No preamble (ignored when SYNC_MODE=000)
             REG_MDMCFG0:  0x00,
             REG_DEVIATN:  0x15,
-            REG_MCSM1:    0x30,  # After TX: go to IDLE; after RX: go to IDLE
+            REG_MCSM1:    0x00,  # CCA_MODE=00 (transmit unconditionally, no CCA wait); TXOFF=IDLE, RXOFF=IDLE
             REG_MCSM0:    0x18,  # Calibrate on IDLE→TX/RX
             REG_FOCCFG:   0x16,
             REG_BSCFG:    0x6C,
@@ -389,7 +389,7 @@ class CC1101:
             REG_MDMCFG0:  0x00,
             # Async serial mode: PKT_FORMAT=11 (bits[5:4]=11), infinite length
             REG_PKTCTRL0: 0x32,
-            REG_MCSM1:    0x30,
+            REG_MCSM1:    0x00,  # CCA disabled, TXOFF=IDLE, RXOFF=IDLE
             REG_MCSM0:    0x18,
             REG_FOCCFG:   0x16,
             REG_BSCFG:    0x6C,
