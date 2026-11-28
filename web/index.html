@@ -252,6 +252,43 @@ button.row:active,a.row:active{background:var(--fill)}
 .toast.show{transform:translate(-50%,0)}
 .toast.err{color:var(--red)}
 
+/* ── Welcome & Login Portal ────────────────────────── */
+.auth-overlay{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;transition:opacity .3s ease,visibility .3s ease}
+.auth-overlay.hidden{opacity:0;visibility:hidden;pointer-events:none}
+.auth-card{background:var(--cell);border-radius:24px;padding:34px 24px 28px;width:100%;max-width:440px;box-shadow:0 12px 40px rgba(0,0,0,.22);border:.5px solid var(--sep);text-align:center}
+.auth-brand{display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:14px}
+.auth-logo{width:60px;height:60px;border-radius:15px;box-shadow:0 4px 16px rgba(0,122,255,.28)}
+.auth-badge{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;padding:3px 10px;border-radius:99px;background:var(--fill);color:var(--label2)}
+.auth-title{margin:0 0 6px;font-size:28px;font-weight:700;letter-spacing:-.4px}
+.auth-subtitle{margin:0 0 24px;color:var(--label2);font-size:15px;line-height:1.4}
+.auth-options{display:flex;flex-direction:column;gap:12px;text-align:left}
+.auth-opt{display:flex;align-items:center;gap:14px;padding:14px 16px;background:var(--cell2);border-radius:16px;border:1.5px solid transparent;cursor:pointer;transition:transform .15s ease,background .15s,border-color .15s}
+.auth-opt:active{transform:scale(.98)}
+.auth-opt:hover{border-color:var(--blue);background:color-mix(in srgb,var(--blue) 8%,var(--cell2))}
+.auth-opt-icon{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;font-size:22px;flex:none;color:#fff}
+.auth-opt-icon.admin{background:linear-gradient(135deg,var(--indigo),var(--blue))}
+.auth-opt-icon.guest{background:linear-gradient(135deg,var(--green),var(--teal))}
+.auth-opt-info{flex:1;min-width:0}
+.auth-opt-title{font-size:16px;font-weight:600;display:flex;align-items:center;gap:8px}
+.auth-opt-desc{font-size:13px;color:var(--label2);margin-top:2px;line-height:1.35}
+.pill-badge{font-size:11px;font-weight:600;padding:2px 7px;border-radius:99px;background:color-mix(in srgb,var(--blue) 18%,transparent);color:var(--blue)}
+.pill-badge.green{background:color-mix(in srgb,var(--green) 18%,transparent);color:var(--green)}
+.auth-chev{color:var(--label3);font-size:18px}
+.admin-pin-box{background:var(--fill);border-radius:14px;padding:14px;margin-top:4px}
+.admin-pin-box .field{background:var(--cell);margin-bottom:8px}
+.auth-pin-actions{display:flex;gap:8px;align-items:center}
+.btn-sm{height:42px;font-size:15px;flex:1;background:var(--blue);color:#fff;border-radius:10px;font-weight:600}
+.btn-text{color:var(--blue);font-size:14px;padding:0 8px;cursor:pointer}
+.pin-err{color:var(--red);font-size:12px;margin-top:6px;text-align:center}
+.auth-footer{margin-top:22px;font-size:12px;color:var(--label3);line-height:1.4}
+
+/* Role badge in header */
+.nav-role{position:absolute;left:16px;display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:4px 10px;border-radius:99px;background:var(--fill);color:var(--label);cursor:pointer;transition:background .15s}
+.nav-role:hover{background:var(--fill2)}
+.role-dot{width:7px;height:7px;border-radius:50%;background:var(--blue)}
+.role-dot.guest{background:var(--green)}
+.side-role-badge{margin-left:auto;font-size:12px;font-weight:600;padding:3px 9px;border-radius:99px;background:var(--fill);color:var(--label2);cursor:pointer;border:.5px solid var(--sep)}
+
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -285,6 +322,7 @@ button.row:active,a.row:active{background:var(--fill)}
 
 <header class="navbar" id="navbar">
   <div class="inner">
+    <button class="nav-role" id="navRole" onclick="openProfileSheet()" title="Switch User Profile"><span class="role-dot" id="roleDot"></span><span id="roleName">Admin</span></button>
     <span class="ttl" id="navTitle">Home</span>
     <span class="conn" id="conn"><span class="dot"></span><span id="connText">Live</span></span>
   </div>
@@ -513,7 +551,7 @@ button.row:active,a.row:active{background:var(--fill)}
 </div>
 
 <nav class="tabbar" id="tabbar">
-  <div class="side-brand"><img src="/icon-192.png" alt="">Halo</div>
+  <div class="side-brand"><img src="/icon-192.png" alt="">Halo <span class="side-role-badge" id="sideRoleBadge" onclick="openProfileSheet()">Admin</span></div>
   <button data-tab="home" class="sel"><svg class="i"><use href="#i-home"/></svg>Home</button>
   <button data-tab="activity"><svg class="i"><use href="#i-list"/></svg>Activity</button>
   <button data-tab="device"><svg class="i"><use href="#i-gear"/></svg>Device</button>
@@ -600,6 +638,60 @@ button.row:active,a.row:active{background:var(--fill)}
 
 <div class="toast" id="toast" role="status"><span id="toastText"></span></div>
 
+<!-- Welcome & Login Portal -->
+<div id="authOverlay" class="auth-overlay hidden">
+  <div class="auth-card">
+    <div class="auth-brand">
+      <img src="/icon-192.png" alt="Halo" class="auth-logo">
+      <div class="auth-badge">Halo Assistant</div>
+    </div>
+    <h1 class="auth-title">Welcome Back</h1>
+    <p class="auth-subtitle">How can Halo assist you at the moment?</p>
+
+    <div class="auth-options">
+      <!-- Admin Option -->
+      <div class="auth-opt" id="optAdmin" onclick="selectAuthRole('admin')">
+        <div class="auth-opt-icon admin">
+          <svg class="i"><use href="#i-gear"/></svg>
+        </div>
+        <div class="auth-opt-info">
+          <div class="auth-opt-title">Admin Panel <span class="pill-badge">Full Control</span></div>
+          <div class="auth-opt-desc">Access all settings, RF pairing, CC1101 diagnostics & device controls</div>
+        </div>
+        <svg class="i auth-chev"><use href="#i-chev"/></svg>
+      </div>
+
+      <!-- Admin PIN box -->
+      <div id="adminPinBox" class="admin-pin-box" hidden>
+        <div class="field" style="margin-bottom:8px">
+          <input type="password" id="adminPinInput" placeholder="Enter Admin PIN (Default: 1234)" inputmode="numeric" maxlength="8">
+        </div>
+        <div class="auth-pin-actions">
+          <button class="btn btn-sm" onclick="loginAdmin()">Sign In as Admin</button>
+          <button class="btn-text" onclick="cancelAdminPin()">Cancel</button>
+        </div>
+        <div id="pinErr" class="pin-err" hidden>Incorrect PIN. Default is 1234.</div>
+      </div>
+
+      <!-- Guest Option -->
+      <div class="auth-opt" id="optGuest" onclick="loginGuest()">
+        <div class="auth-opt-icon guest">
+          <svg class="i"><use href="#i-garage"/></svg>
+        </div>
+        <div class="auth-opt-info">
+          <div class="auth-opt-title">Guest Access <span class="pill-badge green">Quick Control</span></div>
+          <div class="auth-opt-desc">Open & close garage door, toggle courtesy light & view live status</div>
+        </div>
+        <svg class="i auth-chev"><use href="#i-chev"/></svg>
+      </div>
+    </div>
+
+    <div class="auth-footer">
+      Your selection is saved on this device. You will stay signed in until you log out.
+    </div>
+  </div>
+</div>
+
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -672,8 +764,123 @@ function setTheme(v) {
 $("themeSeg").onclick = e => e.target.dataset.v && setTheme(e.target.dataset.v);
 setTheme(localStorage.getItem("halo-theme") || "system");
 
+// ── Auth & Role Management ───────────────────────────
+let currentRole = localStorage.getItem("halo_role");
+const ADMIN_DEFAULT_PIN = "1234";
+
+function getAdminPin() {
+  return localStorage.getItem("halo_admin_pin") || ADMIN_DEFAULT_PIN;
+}
+
+function applyRole(role) {
+  currentRole = role;
+  const isGuest = role === "guest";
+  const roleNameEl = $("roleName");
+  const roleDotEl = $("roleDot");
+  const sideBadgeEl = $("sideRoleBadge");
+  const deviceTabBtn = document.querySelector('#tabbar [data-tab="device"]');
+  
+  if (roleNameEl) roleNameEl.textContent = isGuest ? "Guest" : "Admin";
+  if (roleDotEl) roleDotEl.className = "role-dot " + (isGuest ? "guest" : "");
+  if (sideBadgeEl) sideBadgeEl.textContent = isGuest ? "Guest" : "Admin";
+
+  if (deviceTabBtn) {
+    deviceTabBtn.style.display = isGuest ? "none" : "";
+  }
+
+  if (isGuest && location.hash === "#device") {
+    go("home");
+  }
+}
+
+function initAuth() {
+  const savedRole = localStorage.getItem("halo_role");
+  if (savedRole === "admin" || savedRole === "guest") {
+    $("authOverlay").classList.add("hidden");
+    applyRole(savedRole);
+  } else {
+    $("authOverlay").classList.remove("hidden");
+  }
+  $("adminPinInput").onkeydown = e => { if (e.key === "Enter") loginAdmin(); };
+}
+
+function selectAuthRole(role) {
+  if (role === "admin") {
+    const pinBox = $("adminPinBox");
+    pinBox.hidden = false;
+    $("adminPinInput").value = "";
+    $("pinErr").hidden = true;
+    setTimeout(() => $("adminPinInput").focus(), 120);
+  } else {
+    loginGuest();
+  }
+}
+
+function cancelAdminPin() {
+  $("adminPinBox").hidden = true;
+  $("pinErr").hidden = true;
+}
+
+function loginAdmin() {
+  const inputPin = $("adminPinInput").value.trim();
+  const validPin = getAdminPin();
+  if (inputPin === validPin || (!validPin && !inputPin)) {
+    localStorage.setItem("halo_role", "admin");
+    $("authOverlay").classList.add("hidden");
+    applyRole("admin");
+    toast("Welcome! Signed in as Admin", true);
+  } else {
+    $("pinErr").hidden = false;
+    $("adminPinInput").focus();
+  }
+}
+
+function loginGuest() {
+  localStorage.setItem("halo_role", "guest");
+  $("authOverlay").classList.add("hidden");
+  applyRole("guest");
+  toast("Welcome! Signed in as Guest", true);
+}
+
+function logout() {
+  localStorage.removeItem("halo_role");
+  $("adminPinBox").hidden = true;
+  $("pinErr").hidden = true;
+  $("authOverlay").classList.remove("hidden");
+  closeAll();
+}
+
+function openProfileSheet() {
+  const isGuest = currentRole === "guest";
+  const actions = [
+    { label: "Switch Profile / Log Out", fn: logout, red: true }
+  ];
+  if (!isGuest) {
+    actions.unshift({
+      label: "Change Admin PIN",
+      fn: () => {
+        const cur = prompt("Enter new 4-digit Admin PIN:");
+        if (cur && cur.trim().length >= 4) {
+          localStorage.setItem("halo_admin_pin", cur.trim());
+          toast("Admin PIN updated successfully", true);
+        } else if (cur !== null) {
+          toast("PIN must be at least 4 digits", false);
+        }
+      }
+    });
+  }
+  actionSheet(
+    `Signed in as ${isGuest ? "Guest" : "Admin"}`,
+    isGuest
+      ? "Guest mode allows garage door and courtesy light controls. The Admin Panel is protected."
+      : "Admin mode grants full control of all device settings, radio pairing, and telemetry.",
+    actions
+  );
+}
+
 // ── Navigation ───────────────────────────────────────
 function go(tab, anchor) {
+  if (currentRole === "guest" && tab === "device") tab = "home";
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === "view-" + tab));
   document.querySelectorAll("#tabbar button").forEach(b => b.classList.toggle("sel", b.dataset.tab === tab));
   $("navTitle").textContent = $("view-" + tab).dataset.title;
@@ -1393,6 +1600,7 @@ function connect() {
 addEventListener("online", () => { disconnect(); connect(); });
 function disconnect() { if (es) { es.close(); es = null; } clearInterval(pollT); pollT = null; live = false; }
 document.addEventListener("visibilitychange", () => document.hidden ? disconnect() : connect());
+initAuth();
 poll().then(connect);
 </script>
 </body>
