@@ -257,7 +257,7 @@ button.row:active,a.row:active{background:var(--fill)}
 .auth-overlay.hidden{opacity:0;visibility:hidden;pointer-events:none}
 .auth-card{background:var(--cell);border-radius:24px;padding:34px 24px 28px;width:100%;max-width:440px;box-shadow:0 12px 40px rgba(0,0,0,.22);border:.5px solid var(--sep);text-align:center}
 .auth-brand{display:flex;flex-direction:column;align-items:center;gap:10px;margin-bottom:14px}
-.auth-logo{width:60px;height:60px;border-radius:15px;box-shadow:0 4px 16px rgba(0,122,255,.28)}
+.auth-logo{width:88px;height:88px;border-radius:20px;box-shadow:0 8px 24px rgba(0,0,0,.35);object-fit:cover}
 .auth-badge{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.8px;padding:3px 10px;border-radius:99px;background:var(--fill);color:var(--label2)}
 .auth-title{margin:0 0 6px;font-size:28px;font-weight:700;letter-spacing:-.4px}
 .auth-subtitle{margin:0 0 24px;color:var(--label2);font-size:15px;line-height:1.4}
@@ -642,7 +642,7 @@ button.row:active,a.row:active{background:var(--fill)}
 <div id="authOverlay" class="auth-overlay hidden">
   <div class="auth-card">
     <div class="auth-brand">
-      <img src="/icon-192.png" alt="Halo" class="auth-logo">
+      <img src="/login-logo.png" alt="Halo" class="auth-logo">
       <div class="auth-badge">Halo Assistant</div>
     </div>
     <h1 class="auth-title">Welcome Back</h1>
@@ -664,13 +664,13 @@ button.row:active,a.row:active{background:var(--fill)}
       <!-- Admin PIN box -->
       <div id="adminPinBox" class="admin-pin-box" hidden>
         <div class="field" style="margin-bottom:8px">
-          <input type="password" id="adminPinInput" placeholder="Enter Admin PIN (Default: 1234)" inputmode="numeric" maxlength="8">
+          <input type="password" id="adminPinInput" placeholder="Enter PIN" inputmode="numeric" maxlength="8">
         </div>
         <div class="auth-pin-actions">
           <button class="btn btn-sm" onclick="loginAdmin()">Sign In as Admin</button>
           <button class="btn-text" onclick="cancelAdminPin()">Cancel</button>
         </div>
-        <div id="pinErr" class="pin-err" hidden>Incorrect PIN. Default is 1234.</div>
+        <div id="pinErr" class="pin-err" hidden>Incorrect PIN. Please try again.</div>
       </div>
 
       <!-- Guest Option -->
@@ -766,7 +766,7 @@ setTheme(localStorage.getItem("halo-theme") || "system");
 
 // ── Auth & Role Management ───────────────────────────
 let currentRole = localStorage.getItem("halo_role");
-const ADMIN_DEFAULT_PIN = "1234";
+const ADMIN_DEFAULT_PIN = "9998";
 
 function getAdminPin() {
   return localStorage.getItem("halo_admin_pin") || ADMIN_DEFAULT_PIN;
