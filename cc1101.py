@@ -225,10 +225,10 @@ class CC1101:
             REG_PKTCTRL0: 0x00,  # Fixed length, FIFO mode, no whitening, no CRC
             REG_FSCTRL1:  0x06,
             REG_FSCTRL0:  0x00,
-            # 315.000 MHz with 26 MHz crystal: FREQ = round(315e6/26e6 * 65536) = 0x0C1D89
+            # 315.000 MHz with 26 MHz crystal: FREQ = round(315e6/26e6 * 65536) = 0x0C1D91
             REG_FREQ2:    0x0C,
             REG_FREQ1:    0x1D,
-            REG_FREQ0:    0x89,
+            REG_FREQ0:    0x91,
             # Baud rate 2000: DRATE_E=6, DRATE_M=67 → 2002.24 baud (0.11% error)
             REG_MDMCFG4:  0xC6,  # CHANBW=100kHz, DRATE_E=6
             REG_MDMCFG3:  0x43,  # DRATE_M=67
@@ -241,10 +241,10 @@ class CC1101:
             REG_MCSM0:    0x18,  # Calibrate on IDLE→TX/RX
             REG_FOCCFG:   0x16,
             REG_BSCFG:    0x6C,
-            REG_AGCCTRL2: 0x03,
-            REG_AGCCTRL1: 0x40,
-            REG_AGCCTRL0: 0x91,
-            REG_FREND1:   0x56,
+            REG_AGCCTRL2: 0x06,  # Optimized per TI DN022 for OOK
+            REG_AGCCTRL1: 0x00,  # Optimized per TI DN022 for OOK
+            REG_AGCCTRL0: 0x92,  # Optimized per TI DN022 for OOK
+            REG_FREND1:   0xB6,  # Front end RX/TX configuration (optimal 100kHz filter)
             REG_FREND0:   0x11,  # OOK: PATABLE index 1 for '1'
             REG_FSCAL3:   0xE9,
             REG_FSCAL2:   0x2A,
@@ -320,18 +320,18 @@ class CC1101:
 
         self.strobe(STROBE_STX)
 
-        # Wait for TX to complete: 50 bytes × 8 bits / 2000 baud ≈ 200 ms
+        # Wait for TX to complete: 50 bytes × 8 bits / 2000 baud = 200 ms
         tx_duration_sec = (len(burst_bytes) * 8) / 2000.0
-        time.sleep(tx_duration_sec + 0.020)
+        time.sleep(tx_duration_sec * 0.85)
 
-        # Poll for IDLE (state 0x01) up to 300 ms
+        # Poll for IDLE (state 0x01) up to 250 ms
         state = None
-        deadline = time.time() + 0.3
+        deadline = time.time() + 0.25
         while time.time() < deadline:
             state = self.get_state()
             if state == 0x01:
                 break
-            time.sleep(0.005)
+            time.sleep(0.002)
 
         left = self.read_status(STATUS_TXBYTES)
         self.strobe(STROBE_SIDLE)
@@ -344,8 +344,10 @@ class CC1101:
                              f"still waiting, radio state 0x{(state or 0):02X}). It may be stuck: try "
                              f"restarting Halo, and check the 3.3 V supply")
 
-    def transmit_security_plus(self, bursts: List[bytes], inter_burst_delay: float = 0.025):
-        """Transmit multiple repeated bursts of Security+ frames (FIFO mode)."""
+    def transmit_security_plus(self, bursts: List[bytes], inter_burst_delay: float = 0.002):
+        """Transmit multiple repeated bursts of Security+ frames (FIFO mode).
+        bursts already terminate with a 58ms pause, so minimal inter_burst_delay (2ms)
+        preserves the factory ~58ms cadence between frames."""
         for i, burst in enumerate(bursts):
             self.transmit_burst(burst)
             if i < len(bursts) - 1 and inter_burst_delay > 0:
@@ -379,7 +381,7 @@ class CC1101:
             REG_FSCTRL0:  0x00,
             REG_FREQ2:    0x0C,
             REG_FREQ1:    0x1D,
-            REG_FREQ0:    0x89,
+            REG_FREQ0:    0x91,
             REG_MDMCFG4:  0xC6,
             REG_MDMCFG3:  0x43,
             REG_MDMCFG2:  0x30,  # ASK/OOK
@@ -391,10 +393,10 @@ class CC1101:
             REG_MCSM0:    0x18,
             REG_FOCCFG:   0x16,
             REG_BSCFG:    0x6C,
-            REG_AGCCTRL2: 0x03,
-            REG_AGCCTRL1: 0x40,
-            REG_AGCCTRL0: 0x91,
-            REG_FREND1:   0x56,
+            REG_AGCCTRL2: 0x06,
+            REG_AGCCTRL1: 0x00,
+            REG_AGCCTRL0: 0x92,
+            REG_FREND1:   0xB6,
             REG_FREND0:   0x11,
             REG_FSCAL3:   0xE9,
             REG_FSCAL2:   0x2A,

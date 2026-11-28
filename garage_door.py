@@ -171,7 +171,7 @@ def _do_transmit(radio: CC1101, rolling: int, fixed: int, repeats: int,
 def cmd_pair(args):
     """Pair the virtual remote with a Chamberlain opener via the Purple Learn Button."""
     manager = RemoteManager(args.config)
-    repeats = args.repeats or 8
+    repeats = args.repeats or 20
     mode = getattr(args, 'mode', 'fifo')
     gdo0 = getattr(args, 'gdo0', 24)
 
@@ -181,13 +181,15 @@ def cmd_pair(args):
     print("Step 1: Walk to your garage door opener motor unit.")
     print("Step 2: Press the PURPLE learn button once firmly.")
     print("        The amber/purple learn LED will glow solid for ~30 seconds.")
+    print("IMPORTANT: Position the CC1101 antenna within 1-2 feet of the")
+    print("           opener's purple/gray wire antenna while pairing!")
     print("=" * 60)
 
     if not args.yes:
         input("Press [Enter] once the opener learn LED is solid ON...")
 
     rolling, fixed = manager.get_next_codes()
-    print(f"Transmitting pairing signal (Fixed ID {fixed}, Rolling {rolling}, mode={mode})...")
+    print(f"Transmitting pairing signal ({repeats} bursts, Fixed ID {fixed}, Rolling {rolling}, mode={mode})...")
 
     if mode == "async":
         radio = get_radio_async(args.spi_bus, args.spi_device)
@@ -195,7 +197,7 @@ def cmd_pair(args):
         radio = get_radio_fifo(args.spi_bus, args.spi_device)
 
     try:
-        _do_transmit(radio, rolling, fixed, repeats, mode, gdo0, inter_delay=0.030)
+        _do_transmit(radio, rolling, fixed, repeats, mode, gdo0, inter_delay=0.002)
     finally:
         radio.close()
 
@@ -208,7 +210,7 @@ def cmd_pair(args):
 def cmd_toggle(args):
     """Transmit open/close command and increment rolling code counter."""
     manager = RemoteManager(args.config)
-    repeats = args.repeats or manager.config.get("repeats_per_press", 8)
+    repeats = args.repeats or manager.config.get("repeats_per_press", 12)
     mode = getattr(args, 'mode', 'fifo')
     gdo0 = getattr(args, 'gdo0', 24)
 
@@ -222,7 +224,7 @@ def cmd_toggle(args):
         radio = get_radio_fifo(args.spi_bus, args.spi_device)
 
     try:
-        _do_transmit(radio, rolling, fixed, repeats, mode, gdo0, inter_delay=0.025)
+        _do_transmit(radio, rolling, fixed, repeats, mode, gdo0, inter_delay=0.002)
     finally:
         radio.close()
 
@@ -233,7 +235,7 @@ def cmd_toggle(args):
 def cmd_light(args):
     """Transmit light on/off command (Button 1) and advance rolling code counter."""
     manager = RemoteManager(args.config)
-    repeats = args.repeats or manager.config.get("repeats_per_press", 8)
+    repeats = args.repeats or manager.config.get("repeats_per_press", 12)
     mode = getattr(args, 'mode', 'fifo')
     gdo0 = getattr(args, 'gdo0', 24)
 
@@ -247,7 +249,7 @@ def cmd_light(args):
         radio = get_radio_fifo(args.spi_bus, args.spi_device)
 
     try:
-        _do_transmit(radio, rolling, fixed, repeats, mode, gdo0, inter_delay=0.025)
+        _do_transmit(radio, rolling, fixed, repeats, mode, gdo0, inter_delay=0.002)
     finally:
         radio.close()
 
@@ -258,7 +260,7 @@ def cmd_light(args):
 def cmd_pair_light(args):
     """Pair the light button (Button 1) using the Multi-Function Door Control."""
     manager = RemoteManager(args.config)
-    repeats = args.repeats or 8
+    repeats = args.repeats or 24
     mode = getattr(args, 'mode', 'fifo')
     gdo0 = getattr(args, 'gdo0', 24)
 
@@ -268,13 +270,14 @@ def cmd_pair_light(args):
     print("Step 1: Go to the wall-mounted door control inside your garage.")
     print("Step 2: Press and HOLD the LIGHT button on the wall control.")
     print("Step 3: While holding LIGHT, press and HOLD the LOCK button.")
+    print("IMPORTANT: Position CC1101 within 1-2 feet of the opener antenna!")
     print("=" * 60)
 
     if not args.yes:
         input("Press [Enter] here while holding the wall control buttons...")
 
     rolling, fixed = manager.get_button_codes(button=1)
-    print(f"Transmitting Light pairing signal (Button 1 Fixed ID {fixed}, Rolling {rolling})...")
+    print(f"Transmitting Light pairing signal ({repeats} bursts, Button 1 Fixed ID {fixed}, Rolling {rolling})...")
 
     if mode == "async":
         radio = get_radio_async(args.spi_bus, args.spi_device)
@@ -282,7 +285,7 @@ def cmd_pair_light(args):
         radio = get_radio_fifo(args.spi_bus, args.spi_device)
 
     try:
-        _do_transmit(radio, rolling, fixed, repeats, mode, gdo0, inter_delay=0.030)
+        _do_transmit(radio, rolling, fixed, repeats, mode, gdo0, inter_delay=0.002)
     finally:
         radio.close()
 
@@ -314,6 +317,51 @@ def cmd_reset_remote(args):
     print("Run 'python3 garage_door.py pair' to pair this new remote ID.")
 
 
+def cmd_test_cw(args):
+    """Transmit an unmodulated Continuous Wave (CW) carrier at 315.00 MHz to test RF output."""
+    radio = CC1101(bus=args.spi_bus, device=args.spi_device)
+    radio.init_spi()
+    radio.reset()
+    radio.strobe(0x36)  # SIDLE
+
+    # Configure unmodulated continuous carrier at 315.00 MHz
+    config = {
+        0x00: 0x2E,  # IOCFG2: High impedance
+        0x02: 0x2E,  # IOCFG0: High impedance
+        0x0B: 0x06,  # FSCTRL1
+        0x0C: 0x00,  # FSCTRL0
+        0x0D: 0x0C,  # FREQ2: 315.000 MHz
+        0x0E: 0x1D,  # FREQ1
+        0x0F: 0x91,  # FREQ0
+        0x12: 0x30,  # MDMCFG2: ASK/OOK, no sync
+        0x08: 0x32,  # PKTCTRL0: Asynchronous serial mode
+        0x18: 0x18,  # MCSM0: Calibrate on IDLE->TX
+        0x22: 0x11,  # FREND0: PA power index 1
+        0x23: 0xE9,  # FSCAL3
+        0x24: 0x2A,  # FSCAL2
+        0x25: 0x00,  # FSCAL1
+        0x26: 0x1F,  # FSCAL0
+        0x2C: 0x81,  # TEST2
+        0x2D: 0x35,  # TEST1
+        0x2E: 0x09,  # TEST0
+    }
+    for reg, val in config.items():
+        radio.write_reg(reg, val)
+
+    # PATABLE: both 0 and 1 output maximum +10 dBm (unmodulated carrier)
+    radio.write_burst(0x3E, [0xC0, 0xC0])
+    radio.strobe(0x35)  # STX
+
+    print(f"Transmitting continuous carrier wave at 315.00 MHz for {args.duration}s...")
+    print("Use an RTL-SDR, SDR dongle, or RF power meter to verify transmission.")
+    try:
+        time.sleep(args.duration)
+    finally:
+        radio.strobe(0x36)  # SIDLE
+        radio.close()
+        print("Carrier test finished (radio returned to IDLE).")
+
+
 def cmd_test_rf(args):
     """Transmit continuous test bursts for RF verification."""
     mode = getattr(args, 'mode', 'fifo')
@@ -330,8 +378,8 @@ def cmd_test_rf(args):
     count = 0
     try:
         while time.time() - start < args.duration:
-            _do_transmit(radio, 12345, 67890 * 27 + 9, 1, mode, gdo0, inter_delay=0.0)
-            time.sleep(0.025)
+            _do_transmit(radio, 12345, 67890 * 27 + 9, 1, mode, gdo0, inter_delay=0.002)
+            time.sleep(0.010)
             count += 1
         print(f"Sent {count} test bursts successfully.")
     finally:
@@ -370,20 +418,20 @@ def main():
     subparsers.add_parser("debug", help="Print encoded bytes/bits for the next transmission (no RF)")
 
     sub_pair = subparsers.add_parser("pair", help="Pair virtual remote (press purple learn button first)")
-    sub_pair.add_argument("-r", "--repeats", type=int, default=8)
+    sub_pair.add_argument("-r", "--repeats", type=int, default=20)
     sub_pair.add_argument("-y", "--yes", action="store_true")
 
     sub_toggle = subparsers.add_parser("toggle", help="Send Open/Close command")
-    sub_toggle.add_argument("-r", "--repeats", type=int, default=None)
+    sub_toggle.add_argument("-r", "--repeats", type=int, default=12)
 
     subparsers.add_parser("open",  help="Alias for toggle")
     subparsers.add_parser("close", help="Alias for toggle")
 
     sub_light = subparsers.add_parser("light", help="Toggle opener lights (Button 1)")
-    sub_light.add_argument("-r", "--repeats", type=int, default=None)
+    sub_light.add_argument("-r", "--repeats", type=int, default=12)
 
     sub_pair_light = subparsers.add_parser("pair-light", help="Pair light button with wall control")
-    sub_pair_light.add_argument("-r", "--repeats", type=int, default=8)
+    sub_pair_light.add_argument("-r", "--repeats", type=int, default=24)
     sub_pair_light.add_argument("-y", "--yes", action="store_true")
 
     sub_btn = subparsers.add_parser("set-button", help="Switch button (0=large door, 1=light, 2=other)")
@@ -397,6 +445,9 @@ def main():
 
     sub_test = subparsers.add_parser("test-rf", help="Transmit RF test bursts")
     sub_test.add_argument("-d", "--duration", type=float, default=5.0)
+
+    sub_cw = subparsers.add_parser("test-cw", help="Transmit unmodulated 315.00 MHz carrier wave (for SDR/meter testing)")
+    sub_cw.add_argument("-d", "--duration", type=float, default=5.0)
 
     sub_web = subparsers.add_parser("web", help="Start the Halo web app & REST API")
     sub_web.add_argument("--host", default="0.0.0.0")
@@ -421,6 +472,7 @@ def main():
         "set-counter":  cmd_set_counter,
         "reset-remote": cmd_reset_remote,
         "test-rf":      cmd_test_rf,
+        "test-cw":      cmd_test_cw,
         "web":          cmd_web,
     }
     dispatch[args.command](args)

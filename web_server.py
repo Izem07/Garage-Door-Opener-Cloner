@@ -1345,7 +1345,7 @@ class LockedError(Exception):
     """Door command refused because the remote lock is on."""
 
 
-def transmit(rolling: int, fixed: int, repeats: int, delay: float = 0.025):
+def transmit(rolling: int, fixed: int, repeats: int, delay: float = 0.002):
     """Send one Security+ 1.0 press (N bursts) in the configured TX mode."""
     radio = CTX["radio"]
     with radio_lock:
@@ -1369,7 +1369,7 @@ def transmit(rolling: int, fixed: int, repeats: int, delay: float = 0.025):
 
 
 def default_repeats(value=None, default=None) -> int:
-    r = value or default or CTX["remote_mgr"].config.get("repeats_per_press", 8)
+    r = value or default or CTX["remote_mgr"].config.get("repeats_per_press", 12)
     return max(1, min(32, int(r)))
 
 
@@ -2040,7 +2040,7 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
         add_log(action, msg, success=False)
         self.send_json({"success": False, "error": msg}, status_code=500)
 
-    def transmit(self, rolling: int, fixed: int, repeats: int, delay: float = 0.025):
+    def transmit(self, rolling: int, fixed: int, repeats: int, delay: float = 0.002):
         transmit(rolling, fixed, repeats, delay)
 
     def _repeats(self, data, default=None):
@@ -2414,7 +2414,7 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
     def handle_pair(self, data: dict):
         rolling, fixed = self.remote_mgr.get_next_codes()
         try:
-            self.transmit(rolling, fixed, self._repeats(data, 16), delay=0.03)
+            self.transmit(rolling, fixed, self._repeats(data, 20), delay=0.002)
         except Exception as e:
             return self._fail("Pair Door", e)
         new_rolling, _ = self.remote_mgr.peek_codes()
@@ -2424,7 +2424,7 @@ class HaloRequestHandler(BaseHTTPRequestHandler):
     def handle_pair_light(self, data: dict):
         rolling, fixed = self.remote_mgr.get_button_codes(button=1)
         try:
-            self.transmit(rolling, fixed, self._repeats(data, 24), delay=0.03)
+            self.transmit(rolling, fixed, self._repeats(data, 24), delay=0.002)
         except Exception as e:
             return self._fail("Pair Light", e)
         new_rolling, _ = self.remote_mgr.peek_codes()
